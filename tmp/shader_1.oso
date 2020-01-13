@@ -1,0 +1,216 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.7.1
+# options: -o /var/folders/1s/t89xgwd56tqbs2s74yb8jzsh0000gn/T/tmp6042yslt.oso -I/Applications/blender/blender.app/Contents/Resources/2.78/scripts/addons/cycles/shader
+shader sh_material
+param	color	Diffuse_Color	0.60000002 0.80000001 0.60000002		%read{69,69} %write{2147483647,-1}
+param	float	sh0	1.5		%read{5,5} %write{2147483647,-1}
+param	float	sh1	0.5		%read{6,6} %write{2147483647,-1}
+param	float	sh2	0.2		%read{7,7} %write{2147483647,-1}
+param	float	sh3	0.1		%read{8,8} %write{2147483647,-1}
+param	float	sh4	0		%read{9,9} %write{2147483647,-1}
+param	float	sh5	0		%read{10,10} %write{2147483647,-1}
+param	float	sh6	0		%read{11,11} %write{2147483647,-1}
+param	float	sh7	0		%read{12,12} %write{2147483647,-1}
+param	float	sh8	0		%read{13,13} %write{2147483647,-1}
+oparam	color	sh_color	0 0 0		%read{2147483647,-1} %write{69,69}
+global	normal	N	%read{15,66} %write{2147483647,-1}
+local	float	C1	%read{14,47} %write{0,0}
+local	float	C2	%read{54,64} %write{1,1}
+local	float	C3	%read{23,23} %write{2,2}
+local	float	C4	%read{29,29} %write{3,3}
+local	float	C5	%read{31,31} %write{4,4}
+local	color	L00	%read{29,29} %write{5,5}
+local	color	L1m1	%read{60,60} %write{6,6}
+local	color	L10	%read{65,65} %write{7,7}
+local	color	L11	%read{55,55} %write{8,8}
+local	color	L2m2	%read{34,34} %write{9,9}
+local	color	L2m1	%read{48,48} %write{10,10}
+local	color	L20	%read{23,31} %write{11,11}
+local	color	L21	%read{41,41} %write{12,12}
+local	color	L22	%read{14,14} %write{13,13}
+local	color	kk	%read{69,69} %write{68,68}
+const	float	$const1	0.42904299		%read{0,0} %write{2147483647,-1}
+const	float	$const2	0.51166397		%read{1,1} %write{2147483647,-1}
+const	float	$const3	0.74312502		%read{2,2} %write{2147483647,-1}
+const	float	$const4	0.88622701		%read{3,3} %write{2147483647,-1}
+const	float	$const5	0.24770799		%read{4,4} %write{2147483647,-1}
+temp	color	$tmp1	%read{22,22} %write{14,14}
+const	int	$const6	0		%read{15,56} %write{2147483647,-1}
+temp	float	$tmp2	%read{17,17} %write{15,15}
+temp	float	$tmp3	%read{17,17} %write{16,16}
+temp	float	$tmp4	%read{21,21} %write{17,17}
+const	int	$const7	1		%read{18,61} %write{2147483647,-1}
+temp	float	$tmp5	%read{20,20} %write{18,18}
+temp	float	$tmp6	%read{20,20} %write{19,19}
+temp	float	$tmp7	%read{21,21} %write{20,20}
+temp	float	$tmp8	%read{22,22} %write{21,21}
+temp	color	$tmp9	%read{28,28} %write{22,22}
+temp	color	$tmp10	%read{25,25} %write{23,23}
+const	int	$const8	2		%read{24,66} %write{2147483647,-1}
+temp	float	$tmp11	%read{25,25} %write{24,24}
+temp	color	$tmp12	%read{27,27} %write{25,25}
+temp	float	$tmp13	%read{27,27} %write{26,26}
+temp	color	$tmp14	%read{28,28} %write{27,27}
+temp	color	$tmp15	%read{30,30} %write{28,28}
+temp	color	$tmp16	%read{30,30} %write{29,29}
+temp	color	$tmp17	%read{32,32} %write{30,30}
+temp	color	$tmp18	%read{32,32} %write{31,31}
+temp	color	$tmp19	%read{39,39} %write{32,32}
+const	float	$const9	2		%read{33,64} %write{2147483647,-1}
+temp	float	$tmp20	%read{34,34} %write{33,33}
+temp	color	$tmp21	%read{36,36} %write{34,34}
+temp	float	$tmp22	%read{36,36} %write{35,35}
+temp	color	$tmp23	%read{38,38} %write{36,36}
+temp	float	$tmp24	%read{38,38} %write{37,37}
+temp	color	$tmp25	%read{39,39} %write{38,38}
+temp	color	$tmp26	%read{46,46} %write{39,39}
+temp	float	$tmp27	%read{41,41} %write{40,40}
+temp	color	$tmp28	%read{43,43} %write{41,41}
+temp	float	$tmp29	%read{43,43} %write{42,42}
+temp	color	$tmp30	%read{45,45} %write{43,43}
+temp	float	$tmp31	%read{45,45} %write{44,44}
+temp	color	$tmp32	%read{46,46} %write{45,45}
+temp	color	$tmp33	%read{53,53} %write{46,46}
+temp	float	$tmp34	%read{48,48} %write{47,47}
+temp	color	$tmp35	%read{50,50} %write{48,48}
+temp	float	$tmp36	%read{50,50} %write{49,49}
+temp	color	$tmp37	%read{52,52} %write{50,50}
+temp	float	$tmp38	%read{52,52} %write{51,51}
+temp	color	$tmp39	%read{53,53} %write{52,52}
+temp	color	$tmp40	%read{58,58} %write{53,53}
+temp	float	$tmp41	%read{55,55} %write{54,54}
+temp	color	$tmp42	%read{57,57} %write{55,55}
+temp	float	$tmp43	%read{57,57} %write{56,56}
+temp	color	$tmp44	%read{58,58} %write{57,57}
+temp	color	$tmp45	%read{63,63} %write{58,58}
+temp	float	$tmp46	%read{60,60} %write{59,59}
+temp	color	$tmp47	%read{62,62} %write{60,60}
+temp	float	$tmp48	%read{62,62} %write{61,61}
+temp	color	$tmp49	%read{63,63} %write{62,62}
+temp	color	$tmp50	%read{68,68} %write{63,63}
+temp	float	$tmp51	%read{65,65} %write{64,64}
+temp	color	$tmp52	%read{67,67} %write{65,65}
+temp	float	$tmp53	%read{67,67} %write{66,66}
+temp	color	$tmp54	%read{68,68} %write{67,67}
+code ___main___
+# tmp/shader_1.osl:13
+#     float C2 = 0.511664;
+	assign		C1 $const1 	%filename{"tmp/shader_1.osl"} %line{13} %argrw{"wr"}
+# tmp/shader_1.osl:14
+#     float C3 = 0.743125;
+	assign		C2 $const2 	%line{14} %argrw{"wr"}
+# tmp/shader_1.osl:15
+#     float C4 = 0.886227;
+	assign		C3 $const3 	%line{15} %argrw{"wr"}
+# tmp/shader_1.osl:16
+#     float C5 = 0.247708;
+	assign		C4 $const4 	%line{16} %argrw{"wr"}
+# tmp/shader_1.osl:17
+# 
+	assign		C5 $const5 	%line{17} %argrw{"wr"}
+# tmp/shader_1.osl:19
+#     color L1m1 = color(sh1, sh1, sh1);
+	color		L00 sh0 sh0 sh0 	%line{19} %argrw{"wrrr"}
+# tmp/shader_1.osl:20
+#     color L10 = color(sh2, sh2, sh2);
+	color		L1m1 sh1 sh1 sh1 	%line{20} %argrw{"wrrr"}
+# tmp/shader_1.osl:21
+#     color L11 = color(sh3, sh3, sh3);
+	color		L10 sh2 sh2 sh2 	%line{21} %argrw{"wrrr"}
+# tmp/shader_1.osl:22
+#     color L2m2 = color(sh4, sh4, sh4);
+	color		L11 sh3 sh3 sh3 	%line{22} %argrw{"wrrr"}
+# tmp/shader_1.osl:23
+#     color L2m1 = color(sh5, sh5, sh5);
+	color		L2m2 sh4 sh4 sh4 	%line{23} %argrw{"wrrr"}
+# tmp/shader_1.osl:24
+#     color L20 = color(sh6, sh6, sh6);
+	color		L2m1 sh5 sh5 sh5 	%line{24} %argrw{"wrrr"}
+# tmp/shader_1.osl:25
+#     color L21 = color(sh7, sh7, sh7);
+	color		L20 sh6 sh6 sh6 	%line{25} %argrw{"wrrr"}
+# tmp/shader_1.osl:26
+#     color L22 = color(sh8, sh8, sh8);
+	color		L21 sh7 sh7 sh7 	%line{26} %argrw{"wrrr"}
+# tmp/shader_1.osl:27
+# 
+	color		L22 sh8 sh8 sh8 	%line{27} %argrw{"wrrr"}
+# tmp/shader_1.osl:29
+#                  C3 * L20 * N[2] * N[2] +
+	mul		$tmp1 C1 L22 	%line{29} %argrw{"wrr"}
+	compref		$tmp2 N $const6 	%argrw{"wrr"}
+	compref		$tmp3 N $const6 	%argrw{"wrr"}
+	mul		$tmp4 $tmp2 $tmp3 	%argrw{"wrr"}
+	compref		$tmp5 N $const7 	%argrw{"wrr"}
+	compref		$tmp6 N $const7 	%argrw{"wrr"}
+	mul		$tmp7 $tmp5 $tmp6 	%argrw{"wrr"}
+	sub		$tmp8 $tmp4 $tmp7 	%argrw{"wrr"}
+	mul		$tmp9 $tmp1 $tmp8 	%argrw{"wrr"}
+# tmp/shader_1.osl:30
+#                  C4 * L00 -
+	mul		$tmp10 C3 L20 	%line{30} %argrw{"wrr"}
+	compref		$tmp11 N $const8 	%argrw{"wrr"}
+	mul		$tmp12 $tmp10 $tmp11 	%argrw{"wrr"}
+	compref		$tmp13 N $const8 	%argrw{"wrr"}
+	mul		$tmp14 $tmp12 $tmp13 	%argrw{"wrr"}
+	add		$tmp15 $tmp9 $tmp14 	%argrw{"wrr"}
+# tmp/shader_1.osl:31
+#                  C5 * L20 +
+	mul		$tmp16 C4 L00 	%line{31} %argrw{"wrr"}
+	add		$tmp17 $tmp15 $tmp16 	%argrw{"wrr"}
+# tmp/shader_1.osl:32
+#                  2.0 * C1 * L2m2 * N[0] * N[1] +
+	mul		$tmp18 C5 L20 	%line{32} %argrw{"wrr"}
+	sub		$tmp19 $tmp17 $tmp18 	%argrw{"wrr"}
+# tmp/shader_1.osl:33
+#                  2.0 * C1 * L21  * N[0] * N[2] +
+	mul		$tmp20 $const9 C1 	%line{33} %argrw{"wrr"}
+	mul		$tmp21 $tmp20 L2m2 	%argrw{"wrr"}
+	compref		$tmp22 N $const6 	%argrw{"wrr"}
+	mul		$tmp23 $tmp21 $tmp22 	%argrw{"wrr"}
+	compref		$tmp24 N $const7 	%argrw{"wrr"}
+	mul		$tmp25 $tmp23 $tmp24 	%argrw{"wrr"}
+	add		$tmp26 $tmp19 $tmp25 	%argrw{"wrr"}
+# tmp/shader_1.osl:34
+#                  2.0 * C1 * L2m1 * N[1] * N[2] +
+	mul		$tmp27 $const9 C1 	%line{34} %argrw{"wrr"}
+	mul		$tmp28 $tmp27 L21 	%argrw{"wrr"}
+	compref		$tmp29 N $const6 	%argrw{"wrr"}
+	mul		$tmp30 $tmp28 $tmp29 	%argrw{"wrr"}
+	compref		$tmp31 N $const8 	%argrw{"wrr"}
+	mul		$tmp32 $tmp30 $tmp31 	%argrw{"wrr"}
+	add		$tmp33 $tmp26 $tmp32 	%argrw{"wrr"}
+# tmp/shader_1.osl:35
+#                  2.0 * C2 * L11  * N[0] +
+	mul		$tmp34 $const9 C1 	%line{35} %argrw{"wrr"}
+	mul		$tmp35 $tmp34 L2m1 	%argrw{"wrr"}
+	compref		$tmp36 N $const7 	%argrw{"wrr"}
+	mul		$tmp37 $tmp35 $tmp36 	%argrw{"wrr"}
+	compref		$tmp38 N $const8 	%argrw{"wrr"}
+	mul		$tmp39 $tmp37 $tmp38 	%argrw{"wrr"}
+	add		$tmp40 $tmp33 $tmp39 	%argrw{"wrr"}
+# tmp/shader_1.osl:36
+#                  2.0 * C2 * L1m1 * N[1] +
+	mul		$tmp41 $const9 C2 	%line{36} %argrw{"wrr"}
+	mul		$tmp42 $tmp41 L11 	%argrw{"wrr"}
+	compref		$tmp43 N $const6 	%argrw{"wrr"}
+	mul		$tmp44 $tmp42 $tmp43 	%argrw{"wrr"}
+	add		$tmp45 $tmp40 $tmp44 	%argrw{"wrr"}
+# tmp/shader_1.osl:37
+#                  2.0 * C2 * L10  * N[2];
+	mul		$tmp46 $const9 C2 	%line{37} %argrw{"wrr"}
+	mul		$tmp47 $tmp46 L1m1 	%argrw{"wrr"}
+	compref		$tmp48 N $const7 	%argrw{"wrr"}
+	mul		$tmp49 $tmp47 $tmp48 	%argrw{"wrr"}
+	add		$tmp50 $tmp45 $tmp49 	%argrw{"wrr"}
+# tmp/shader_1.osl:38
+#     sh_color  =  Diffuse_Color * kk;
+	mul		$tmp51 $const9 C2 	%line{38} %argrw{"wrr"}
+	mul		$tmp52 $tmp51 L10 	%argrw{"wrr"}
+	compref		$tmp53 N $const8 	%argrw{"wrr"}
+	mul		$tmp54 $tmp52 $tmp53 	%argrw{"wrr"}
+	add		kk $tmp50 $tmp54 	%argrw{"wrr"}
+# tmp/shader_1.osl:39
+# }
+	mul		sh_color Diffuse_Color kk 	%line{39} %argrw{"wrr"}
+	end

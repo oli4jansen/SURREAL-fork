@@ -146,8 +146,12 @@ def init_scene(motion, shapes):
         persons[key] = {}
         persons[key]['motion'] = motion[key]
 
+        log('Going to init person %s' % key)
+
         # Load the images picked at domain randomisation into Blender
         gender = random.choice(['female', 'male'])
+
+        log(gender)
 
         # Get a random clothing texture and load into Blender
         texture_paths = glob(os.path.join(TEXTURES_PATH, gender, '*'))
@@ -157,9 +161,13 @@ def init_scene(motion, shapes):
         bpy.ops.import_scene.fbx(
             filepath=get_body_model(gender), global_scale=100, axis_forward='Y', axis_up='Z')
 
-        armature = [obj for obj in list(
-            bpy.data.objects) if obj.type == 'ARMATURE'][-1]
+        # Get armature using the default name
+        armature = bpy.data.objects.get('Armature')
+        if armature is None:
+            raise Exception('Could not retrieve newly created armature')
+
         armature.name = get_armature_name(key)
+
         mesh = [obj for obj in list(bpy.data.objects)
                 if obj.type == 'MESH'][-1]
         mesh.name = get_mesh_name(key)
@@ -205,8 +213,6 @@ def init_scene(motion, shapes):
         # armature.animation_data_clear()
 
         persons[key]['gender'] = gender
-        print('persons[key][\'gender\']')
-        print(persons[key]['gender'])
         persons[key]['shape'] = shape
         persons[key]['clothing_img'] = clothing_img
         persons[key]['material'] = material
@@ -268,8 +274,12 @@ def deselect_all():
 
 def create_material(person, clothing_img):
     deselect_all()
-    material = bpy.data.materials['Material']
-    material.name = 'Material_For_Person_%s' % person
+    material = bpy.data.materials.get('Material')
+    if material is None:
+        material = bpy.data.materials.new(
+            name='Material_For_Person_%s' % person)
+    else:
+        material.name = 'Material_For_Person_%s' % person
 
     # Copy the base shader file to temporary directory
     tmp_shader_path = join(getcwd(), TMP_PATH, 'shader_%s.osl' % person)
@@ -356,6 +366,8 @@ def create_composite_nodes(background_img):
     tree.links.new(mix.outputs[0], composite_out.inputs[0])
 
 # apply trans pose and shape to character
+
+
 def apply_trans_pose_shape(trans, pose, person, frame=None):
     # Get the armature and mesh objects for this person
     armature = person['armature']

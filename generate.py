@@ -61,7 +61,7 @@ def load_motions():
             motion = pickle.load(file)
             motions.append(motion)
 
-    return names, motions
+    return [names[0]], [motions[0]]
 
 
 def get_body_model(gender):
@@ -100,8 +100,6 @@ def get_mesh_name(person):
 
 
 # computes rotation matrix through Rodrigues formula as in cv2.Rodrigues
-
-
 def Rodrigues(rotvec):
     theta = np.linalg.norm(rotvec)
     r = (rotvec/theta).reshape(3, 1) if theta > 0. else rotvec
@@ -109,14 +107,15 @@ def Rodrigues(rotvec):
     mat = np.asarray([[0, -r[2], r[1]],
                       [r[2], 0, -r[0]],
                       [-r[1], r[0], 0]])
-    return (cost*np.eye(3) + (1-cost)*r.dot(r.T) + np.sin(theta)*mat)
+    return(cost*np.eye(3) + (1-cost)*r.dot(r.T) + np.sin(theta)*mat)
 
 # transformation between pose and blendshapes
 
 
 def rodrigues2bshapes(pose):
-    rod_rots = np.asarray(pose).reshape(24, 3)
-    mat_rots = [Rodrigues(rod_rot) for rod_rot in rod_rots]
+    joint_rotations = np.asarray(pose).reshape(24, 3)
+
+    mat_rots = [Rodrigues(rot) for rot in joint_rotations]
     bshapes = np.concatenate([(mat_rot - np.eye(3)).ravel()
                               for mat_rot in mat_rots[1:]])
     return (mat_rots, bshapes)
@@ -211,6 +210,7 @@ def init_scene(motion, shapes):
         orig_trans = np.asarray(pelvis.location).copy()
 
         # armature.animation_data_clear()
+        # mesh.rotation_euler = Euler([math.radians(180), 0, 0], 'XYZ')
 
         persons[key]['gender'] = gender
         persons[key]['shape'] = shape
@@ -227,12 +227,45 @@ def init_scene(motion, shapes):
     scn = bpy.context.scene
     scn.objects.active = cam_ob
 
+
+    bpy.data.objects['Camera'].data.type = 'ORTHO'
+
+    cam = motion[list(motion.keys())[0]]['orig_cam']
+    log('Cam: ')
+    print(cam[0])
+    sx, sy, tx, ty = cam[0]
+
+    # camera = WeakPerspectiveCamera(
+    #     scale=[sx, sy],
+    #     translation=[tx, ty],
+    #     zfar=1000.
+    # )
+
+    scale = [sx, sy]
+    translation = [tx, ty]
+
+    projection_matrix = np.array([[scale[0], 0., 0., translation[0] * scale[0]],
+                                  [0., scale[1], 0., -translation[1] * scale[1]],
+                                  [0., 0., -1., 0.],
+                                  [0., 0., 0., 1.]])
+
+
+    # Matrix([[0.38288637,0,0,0.38288637 * 0.90845471],[0,0.68068687,0,-0.51094959 * 0.68068687],[0,0,-1,0],[0,0,0,1]])
+
+    # cam_ob
+
+    # camera_pose = np.eye(4)
+    # cam_node = self.scene.add(camera, pose=camera_pose)
+
     # TODO: make camera somewhat random
     # You can get camera matrix from Blender Python console (bpy.data.objects['Camera'].matrix_world)
-    matrix_world = Matrix(((-1.,  0.,  0.,  1.25),
-                           (0., -0.2,  1.,  10),
-                           (0., -1., -0.2, -2.5),
-                           (0.,  0.,  0.,  1.)))
+    # matrix_world = Matrix(((-1.,  0.,  0.,  1.25),
+    #                        (0., -0.2,  1.,  10),
+    #                        (0., -1., -0.2, -2.5),
+    #                        (0.,  0.,  0.,  1.)))
+
+    matrix_world = np.eye(4)
+
     # cam_ob.matrix_world = cam_ob.matrix_world * mathutils.Matrix.Translation((0.0, 1.0, 0.0))
     cam_ob.matrix_world = matrix_world
 
@@ -368,7 +401,7 @@ def create_composite_nodes(background_img):
 # apply trans pose and shape to character
 
 
-def apply_trans_pose_shape(trans, pose, person, frame=None):
+def apply_trans_pose_shape(trans, scale, pose, person, frame=None):
     # Get the armature and mesh objects for this person
     armature = person['armature']
     mesh = person['mesh']
@@ -376,59 +409,78 @@ def apply_trans_pose_shape(trans, pose, person, frame=None):
     shape = person['shape']
 
     # Set the location of the first bone to the translation parameter
-    bone_name = get_bone_name(gender, 'Pelvis')
-    armature.pose.bones[bone_name].location = trans
-    if not frame is None:
-        # Insert a keyframe
-        bone_name = get_bone_name(gender, 'root')
-        armature.pose.bones[bone_name].keyframe_insert('location', frame=frame)
+    pelvis = armature.pose.bones[get_bone_name(gender, 'Pelvis')]
+    # pelvis.location = trans
+
+    # root_bone.scale = scale
+
+    root = armature.pose.bones[get_bone_name(gender, 'root')]
+    if frame is not None:
+        root.keyframe_insert('location', frame=frame)
+
+    # armature.location = trans
+    # armature.scale = scale
+
+    # armature.rotation = Euler((-2.1415, 0, 0))
+
+    # if not frame is None:
+    #     # Insert a keyframe
+    #     bone_name = get_bone_name(gender, 'root')
+    #     armature.pose.bones[bone_name].keyframe_insert('location', frame=frame)
 
     # Transform pose into rotation matrices (for pose) and pose blendshapes
     rotation_matrices, blendshapes = rodrigues2bshapes(pose)
 
     # Set the pose of each bone to the quaternion specified by pose
-    for bone_index, mrot in enumerate(rotation_matrices):
+    for bone_index, rotation_matrix in enumerate(rotation_matrices):
+
         bone_name = get_bone_name(gender, smpl_bones[bone_index])
         bone = armature.pose.bones[bone_name]
-        bone.rotation_quaternion = Matrix(mrot).to_quaternion()
+
+        bone.rotation_quaternion = Matrix(rotation_matrix).to_quaternion()
+
         if not frame is None:
             bone.keyframe_insert('rotation_quaternion', frame=frame)
             bone.keyframe_insert('location', frame=frame)
 
     # apply pose blendshapes
-    for i, blendshape in enumerate(blendshapes):
-        key = 'Pose%03d' % i
+    # for i, blendshape in enumerate(blendshapes):
+    #     key = 'Pose%03d' % i
 
-        mesh.data.shape_keys.key_blocks[key].value = blendshape
-        if not frame is None:
-            mesh.data.shape_keys.key_blocks[key].keyframe_insert(
-                'value', index=-1, frame=frame)
+    #     mesh.data.shape_keys.key_blocks[key].value = blendshape
+    #     if not frame is None:
+    #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
+    #             'value', index=-1, frame=frame)
 
-    # apply shape blendshapes
-    for i, shape_elem in enumerate(shape):
-        key = 'Shape%03d' % i
-        mesh.data.shape_keys.key_blocks[key].value = shape_elem
-        if not frame is None:
-            mesh.data.shape_keys.key_blocks[key].keyframe_insert(
-                'value', index=-1, frame=frame)
+    # # apply shape blendshapes
+    # for i, shape_elem in enumerate(shape):
+    #     key = 'Shape%03d' % i
+    #     mesh.data.shape_keys.key_blocks[key].value = shape_elem
+    #     if not frame is None:
+    #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
+    #             'value', index=-1, frame=frame)
 
 
 # reset the joint positions of the character according to its new shape
 def reset_joint_positions(scene, cam_ob, reg_ivs, joint_reg, person):
 
-    orig_trans = person['orig_trans']
     shape = person['shape']
     mesh = person['mesh']
     armature = person['armature']
 
     scene.objects.active = armature
+    # zero the pose and trans to obtain joint positions in zero pose
+    # apply_trans_pose_shape(orig_trans, scale, np.zeros(72), person)
+
+    # Rotate up and one up (TODO: why are estimated poses upside down???)
+    armature.rotation_euler = Euler((np.pi, 0, 0))
+    armature.location = Vector((0., 0., -5.))
+    # armature.location = Vector((0, 0, 1))
+
     # since the regression is sparse, only the relevant vertex
     #     elements (joint_reg) and their indices (reg_ivs) are loaded
     # empty array to hold vertices to regress from
     reg_vs = np.empty((len(reg_ivs), 3))
-    # zero the pose and trans to obtain joint positions in zero pose
-
-    apply_trans_pose_shape(orig_trans, np.zeros(72), person)
 
     # obtain a mesh after applying modifiers
     bpy.ops.wm.memory_statistics()
@@ -497,6 +549,8 @@ def main():
             curr_shape = reset_joint_positions(scene,
                                                cam_ob, regression_verts, joint_regressor, person)
 
+        # print(person['motion'])
+
         log('Did joint position reset for all persons')
 
         # LOOP TO CREATE 3D ANIMATION
@@ -507,7 +561,22 @@ def main():
             for person in persons.values():
                 person_motion = person['motion']
 
-                pred_cam = list(person_motion['pred_cam'][frame])
+                # pred_cam (n_frames, 3)      # weak perspective camera parameters in cropped image space (s,tx,ty)
+                # orig_cam (n_frames, 4)      # weak perspective camera parameters in original image space (sx,sy,tx,ty)
+
+                orig_cam = list(person_motion['orig_cam'][frame])
+
+                scale_x = orig_cam[0]
+                scale_y = orig_cam[1]
+                trans_x = orig_cam[2]
+                trans_y = orig_cam[3]
+
+                scale = Vector([scale_x, scale_y, 1])
+                translation = Vector([trans_x, 0, trans_y])
+
+                scale = Vector([1, 1, 1])
+
+                # translation = Vector([0,0,0])
 
                 # translation = Vector([pred_cam[0], pred_cam[1], pred_cam[2]])
                 # translation = Vector([pred_cam[1], pred_cam[0], pred_cam[2]]) # Pretty good
@@ -516,15 +585,13 @@ def main():
                 # translation = Vector([pred_cam[2], pred_cam[1], pred_cam[0]])
                 # translation = Vector([pred_cam[2], pred_cam[0], pred_cam[1]])
 
-                translation = Vector(
-                    [pred_cam[0], -1 * pred_cam[2], pred_cam[1]])
-
-                # print('Frame ' + str(frame))
-                # print(pred_cam)
+                # Dit slaat nergens op, volgens mij?
+                # translation = Vector(
+                #     [pred_cam[0], -1 * pred_cam[2], pred_cam[1]])
 
                 pose = person_motion['pose'][frame]
                 # apply the translation, pose and shape to the character
-                apply_trans_pose_shape(translation, pose, person, frame)
+                apply_trans_pose_shape(translation, scale, pose, person, frame)
 
                 # arm_ob.pose.bones[body_model_name+'_root'].rotation_quaternion = rot_quat
                 # arm_ob.pose.bones[body_model_name+'_root'].keyframe_insert('rotation_quaternion', frame=get_real_frame(seq_frame))
@@ -549,22 +616,22 @@ def main():
         log('Finished setup')
 
         # iterate over the keyframes and render
-        for frame in range(nr_frames):
-            log("Rendering frame %d" % frame)
+        # for frame in range(nr_frames):
+        #     log("Rendering frame %d" % frame)
 
-            scene.frame_set(frame)
-            scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
-            bpy.ops.render.render(write_still=True)
+        #     scene.frame_set(frame)
+        #     scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
+        #     bpy.ops.render.render(write_still=True)
 
-            for person in persons.values():
-                bone_name = get_bone_name(person['gender'], 'root')
-                bone = person['armature'].pose.bones[bone_name]
-                bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
+        #     for person in persons.values():
+        #         bone_name = get_bone_name(person['gender'], 'root')
+        #         bone = person['armature'].pose.bones[bone_name]
+        #         bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
 
-        cmd_ffmpeg = 'ffmpeg -y -r 30 -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
-            join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
-        log("Generating RGB video (%s)" % cmd_ffmpeg)
-        os.system(cmd_ffmpeg)
+        # cmd_ffmpeg = 'ffmpeg -y -r 30 -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
+        #     join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
+        # log("Generating RGB video (%s)" % cmd_ffmpeg)
+        # os.system(cmd_ffmpeg)
 
         # TODO: clear TMP_PATH
 

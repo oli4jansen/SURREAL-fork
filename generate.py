@@ -129,7 +129,7 @@ def init_scene(motion, shapes):
     scene.cycles.shading_system = True
     scene.use_nodes = True
 
-    # Delete the default cube
+    # Delete the default cube=
     bpy.ops.object.select_all(action='DESELECT')
     bpy.data.objects['Cube'].select = True
     bpy.ops.object.delete(use_global=False)
@@ -140,7 +140,7 @@ def init_scene(motion, shapes):
 
     persons = {}
 
-    for key in list(motion.keys()):
+    for key in list(motion.keys())[:1]:
         # Add the motion to the person object
         persons[key] = {}
         persons[key]['motion'] = motion[key]
@@ -469,13 +469,10 @@ def reset_joint_positions(scene, cam_ob, reg_ivs, joint_reg, person):
     armature = person['armature']
 
     scene.objects.active = armature
-    # zero the pose and trans to obtain joint positions in zero pose
-    # apply_trans_pose_shape(orig_trans, scale, np.zeros(72), person)
 
     # Rotate up and one up (TODO: why are estimated poses upside down???)
     armature.rotation_euler = Euler((np.pi, 0, 0))
-    armature.location = Vector((0., 0., -5.))
-    # armature.location = Vector((0, 0, 1))
+    armature.location = Vector((0., 0., -2.))
 
     # since the regression is sparse, only the relevant vertex
     #     elements (joint_reg) and their indices (reg_ivs) are loaded
@@ -571,27 +568,14 @@ def main():
                 trans_x = orig_cam[2]
                 trans_y = orig_cam[3]
 
-                scale = Vector([scale_x, scale_y, 1])
-                translation = Vector([trans_x, 0, trans_y])
+                cam_ob.location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, 0))
+                cam_ob.keyframe_insert('location', frame=frame)
 
-                scale = Vector([1, 1, 1])
 
-                # translation = Vector([0,0,0])
-
-                # translation = Vector([pred_cam[0], pred_cam[1], pred_cam[2]])
-                # translation = Vector([pred_cam[1], pred_cam[0], pred_cam[2]]) # Pretty good
-                # translation = Vector([pred_cam[0], pred_cam[2], pred_cam[1]])
-                # translation = Vector([pred_cam[1], pred_cam[2], pred_cam[0]])
-                # translation = Vector([pred_cam[2], pred_cam[1], pred_cam[0]])
-                # translation = Vector([pred_cam[2], pred_cam[0], pred_cam[1]])
-
-                # Dit slaat nergens op, volgens mij?
-                # translation = Vector(
-                #     [pred_cam[0], -1 * pred_cam[2], pred_cam[1]])
 
                 pose = person_motion['pose'][frame]
                 # apply the translation, pose and shape to the character
-                apply_trans_pose_shape(translation, scale, pose, person, frame)
+                apply_trans_pose_shape(None, None, pose, person, frame)
 
                 # arm_ob.pose.bones[body_model_name+'_root'].rotation_quaternion = rot_quat
                 # arm_ob.pose.bones[body_model_name+'_root'].keyframe_insert('rotation_quaternion', frame=get_real_frame(seq_frame))
@@ -616,22 +600,22 @@ def main():
         log('Finished setup')
 
         # iterate over the keyframes and render
-        # for frame in range(nr_frames):
-        #     log("Rendering frame %d" % frame)
+        for frame in range(nr_frames):
+            log("Rendering frame %d" % frame)
 
-        #     scene.frame_set(frame)
-        #     scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
-        #     bpy.ops.render.render(write_still=True)
+            scene.frame_set(frame)
+            scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
+            bpy.ops.render.render(write_still=True)
 
-        #     for person in persons.values():
-        #         bone_name = get_bone_name(person['gender'], 'root')
-        #         bone = person['armature'].pose.bones[bone_name]
-        #         bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
+            for person in persons.values():
+                bone_name = get_bone_name(person['gender'], 'root')
+                bone = person['armature'].pose.bones[bone_name]
+                bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
 
-        # cmd_ffmpeg = 'ffmpeg -y -r 30 -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
-        #     join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
-        # log("Generating RGB video (%s)" % cmd_ffmpeg)
-        # os.system(cmd_ffmpeg)
+        cmd_ffmpeg = 'ffmpeg -y -r 30 -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
+            join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
+        log("Generating RGB video (%s)" % cmd_ffmpeg)
+        os.system(cmd_ffmpeg)
 
         # TODO: clear TMP_PATH
 

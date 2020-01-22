@@ -61,6 +61,7 @@ def load_motions():
             motion = pickle.load(file)
             motions.append(motion)
 
+    # return [names, motions]
     return [names[0]], [motions[0]]
 
 
@@ -138,9 +139,15 @@ def init_scene(motion, shapes):
     background_paths = glob(os.path.join(BG_PATH, '*'))
     background_img = bpy.data.images.load(random.choice(background_paths))
 
+
+
+    background_img = bpy.data.images.load('/Users/o.f.jansen/Desktop/bae.png')
+
+
+
     persons = {}
 
-    for key in list(motion.keys())[:1]:
+    for key in list(motion.keys()):
         # Add the motion to the person object
         persons[key] = {}
         persons[key]['motion'] = motion[key]
@@ -150,7 +157,7 @@ def init_scene(motion, shapes):
         # Load the images picked at domain randomisation into Blender
         gender = random.choice(['female', 'male'])
 
-        log(gender)
+        # log(gender)
 
         # Get a random clothing texture and load into Blender
         texture_paths = glob(os.path.join(TEXTURES_PATH, gender, '*'))
@@ -229,10 +236,11 @@ def init_scene(motion, shapes):
 
 
     bpy.data.objects['Camera'].data.type = 'ORTHO'
+    bpy.data.objects['Camera'].data.ortho_scale = 4
 
     cam = motion[list(motion.keys())[0]]['orig_cam']
-    log('Cam: ')
-    print(cam[0])
+    # log('Cam: ')
+    # print(cam[0])
     sx, sy, tx, ty = cam[0]
 
     # camera = WeakPerspectiveCamera(
@@ -547,7 +555,6 @@ def main():
                                                cam_ob, regression_verts, joint_regressor, person)
 
         # print(person['motion'])
-
         log('Did joint position reset for all persons')
 
         # LOOP TO CREATE 3D ANIMATION
@@ -568,18 +575,24 @@ def main():
                 trans_x = orig_cam[2]
                 trans_y = orig_cam[3]
 
-                cam_ob.location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, 0))
-                cam_ob.keyframe_insert('location', frame=frame)
+                # cam_ob.location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, 0))
+                # cam_ob.keyframe_insert('location', frame=frame)
 
+                # Set person location and scale keyframes
+                person['armature'].location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, -2))
+                person['armature'].scale = Vector((scale_x, scale_x, scale_x))
+                person['armature'].pose.bones[get_bone_name(person['gender'], 'root')].keyframe_insert('location', frame=frame)
+                person['armature'].pose.bones[get_bone_name(person['gender'], 'root')].keyframe_insert('scale', frame=frame)
 
+                # Transform pose into rotation matrices (for pose) and pose blendshapes
+                rotation_matrices, blendshapes = rodrigues2bshapes(person_motion['pose'][frame])
 
-                pose = person_motion['pose'][frame]
-                # apply the translation, pose and shape to the character
-                apply_trans_pose_shape(None, None, pose, person, frame)
-
-                # arm_ob.pose.bones[body_model_name+'_root'].rotation_quaternion = rot_quat
-                # arm_ob.pose.bones[body_model_name+'_root'].keyframe_insert('rotation_quaternion', frame=get_real_frame(seq_frame))
-                # dict_info['zrot'][iframe] = random_zrot
+                # Set the pose of each bone to the quaternion specified by pose
+                for bone_index, rotation_matrix in enumerate(rotation_matrices):
+                    bone = person['armature'].pose.bones[get_bone_name(person['gender'], smpl_bones[bone_index])]
+                    bone.rotation_quaternion = Matrix(rotation_matrix).to_quaternion()
+                    bone.keyframe_insert('rotation_quaternion', frame=frame)
+                    bone.keyframe_insert('location', frame=frame)
 
                 scene.update()
 
@@ -599,23 +612,24 @@ def main():
 
         log('Finished setup')
 
+
         # iterate over the keyframes and render
-        for frame in range(nr_frames):
-            log("Rendering frame %d" % frame)
+        # for frame in range(nr_frames):
+        #     log("Rendering frame %d" % frame)
 
-            scene.frame_set(frame)
-            scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
-            bpy.ops.render.render(write_still=True)
+        #     scene.frame_set(frame)
+        #     scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
+        #     bpy.ops.render.render(write_still=True)
 
-            for person in persons.values():
-                bone_name = get_bone_name(person['gender'], 'root')
-                bone = person['armature'].pose.bones[bone_name]
-                bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
+        #     for person in persons.values():
+        #         bone_name = get_bone_name(person['gender'], 'root')
+        #         bone = person['armature'].pose.bones[bone_name]
+        #         bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
 
-        cmd_ffmpeg = 'ffmpeg -y -r 30 -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
-            join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
-        log("Generating RGB video (%s)" % cmd_ffmpeg)
-        os.system(cmd_ffmpeg)
+        # cmd_ffmpeg = 'ffmpeg -y -r 30 -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
+        #     join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
+        # log("Generating RGB video (%s)" % cmd_ffmpeg)
+        # os.system(cmd_ffmpeg)
 
         # TODO: clear TMP_PATH
 

@@ -32,8 +32,8 @@ SHAPE_PATH = 'data/shape/shape_data.pkl'
 SHADER_PATH = 'data/shader/shader.osl'
 OUTPUT_PATH = 'output'
 
-RENDER_WIDTH = 400
-RENDER_HEIGHT = 300
+RENDER_WIDTH = 640
+RENDER_HEIGHT = 360
 
 ################
 #    Utils     #
@@ -61,12 +61,15 @@ def load_motions():
             motion = pickle.load(file)
             motions.append(motion)
 
-    # return [names, motions]
-    return [names[0]], [motions[0]]
+    return names, motions
+    # return [names[0]], [motions[0]]
 
 
 def get_body_model(gender):
     return os.path.join(SMPL_PATH, 'basicModel_%s_lbs_10_207_0_v1.0.2.fbx' % gender[0])
+
+
+logfile = os.path.join(TMP_PATH, 'blender_render.log')
 
 
 ################
@@ -90,14 +93,6 @@ def get_main_scene():
 
 def get_bone_name(gender, bone):
     return gender[0] + '_avg_' + bone
-
-
-def get_armature_name(person):
-    return 'Person_%s_Armature' % person
-
-
-def get_mesh_name(person):
-    return 'Person_%s_Mesh' % person
 
 
 # computes rotation matrix through Rodrigues formula as in cv2.Rodrigues
@@ -130,20 +125,15 @@ def init_scene(motion, shapes):
     scene.cycles.shading_system = True
     scene.use_nodes = True
 
-    # Delete the default cube=
+    # Delete the default blender cube if it is in the scene
     bpy.ops.object.select_all(action='DESELECT')
-    bpy.data.objects['Cube'].select = True
-    bpy.ops.object.delete(use_global=False)
+    if 'Cube' in bpy.data.objects:
+        bpy.data.objects['Cube'].select = True
+        bpy.ops.object.delete(use_global=False)
 
     # Get a random background image and load into Blender
     background_paths = glob(os.path.join(BG_PATH, '*'))
     background_img = bpy.data.images.load(random.choice(background_paths))
-
-
-
-    background_img = bpy.data.images.load('/Users/o.f.jansen/Desktop/bae.png')
-
-
 
     persons = {}
 
@@ -157,26 +147,32 @@ def init_scene(motion, shapes):
         # Load the images picked at domain randomisation into Blender
         gender = random.choice(['female', 'male'])
 
-        # log(gender)
-
         # Get a random clothing texture and load into Blender
         texture_paths = glob(os.path.join(TEXTURES_PATH, gender, '*'))
         clothing_img = bpy.data.images.load(random.choice(texture_paths))
+
+        old = list(bpy.data.objects)
 
         # Load the SMPL model as base for the scene
         bpy.ops.import_scene.fbx(
             filepath=get_body_model(gender), global_scale=100, axis_forward='Y', axis_up='Z')
 
+        new = list(bpy.data.objects)
+
+        delta = [x for x in new if not x in old]
+
         # Get armature using the default name
-        armature = bpy.data.objects.get('Armature')
-        if armature is None:
-            raise Exception('Could not retrieve newly created armature')
+        if len(delta) < 2:
+            raise Exception('Missed one new object')
 
-        armature.name = get_armature_name(key)
-
-        mesh = [obj for obj in list(bpy.data.objects)
+        mesh = [obj for obj in list(delta)
                 if obj.type == 'MESH'][-1]
-        mesh.name = get_mesh_name(key)
+
+        armature = [obj for obj in list(delta)
+                    if obj.type == 'ARMATURE'][-1]
+
+        # armature.name = get_armature_name(key)
+        # mesh.name = get_mesh_name(key)
         # body_model_name = mesh.name
         # body_model = mesh
 
@@ -185,6 +181,10 @@ def init_scene(motion, shapes):
         # Clear existing animation data
         mesh.data.shape_keys.animation_data_clear()
         armature.animation_data_clear()
+
+        # for vertex in mesh.data.vertices:
+        #     print(vertex)
+        #     print(vertex.co)
 
         n_sh_bshapes = len([k for k in mesh.data.shape_keys.key_blocks.keys()
                             if k.startswith('Shape')])
@@ -234,9 +234,8 @@ def init_scene(motion, shapes):
     scn = bpy.context.scene
     scn.objects.active = cam_ob
 
-
     bpy.data.objects['Camera'].data.type = 'ORTHO'
-    bpy.data.objects['Camera'].data.ortho_scale = 4
+    bpy.data.objects['Camera'].data.ortho_scale = 3
 
     cam = motion[list(motion.keys())[0]]['orig_cam']
     # log('Cam: ')
@@ -256,7 +255,6 @@ def init_scene(motion, shapes):
                                   [0., scale[1], 0., -translation[1] * scale[1]],
                                   [0., 0., -1., 0.],
                                   [0., 0., 0., 1.]])
-
 
     # Matrix([[0.38288637,0,0,0.38288637 * 0.90845471],[0,0.68068687,0,-0.51094959 * 0.68068687],[0,0,-1,0],[0,0,0,1]])
 
@@ -525,6 +523,7 @@ def main():
     # Load the extracted motions from disk
     log('Loading motion files')
     motion_names, motions = load_motions()
+    log('Loaded %s motion files' % len(motions))
 
     log('Loading CAESAR shape data')
     with open(SHAPE_PATH, 'rb') as file:
@@ -542,11 +541,9 @@ def main():
         log('Filename will be %s' % render_filename)
 
         # Initialise Blender
-        log('Initialising Blender')
-        # scene, body_model, body_model_name, arm_ob, cam_ob = init_scene(persons)
         scene, persons, cam_ob, orig_cam_loc = init_scene(motion, shapes)
 
-        nr_frames = max([len(motion[person]['frame_ids'])
+        nr_frames = max([max(motion[person]['frame_ids'])
                          for person in motion.keys()])
 
         # TODO: figure out why this is needed
@@ -554,49 +551,78 @@ def main():
             curr_shape = reset_joint_positions(scene,
                                                cam_ob, regression_verts, joint_regressor, person)
 
-        # print(person['motion'])
-        log('Did joint position reset for all persons')
 
         # LOOP TO CREATE 3D ANIMATION
         for frame in range(nr_frames):
             # Set a new keyframe
             scene.frame_set(frame)
 
-            for person in persons.values():
+            # Loop over the persons in the scene
+            for key, person in persons.items():
+                
                 person_motion = person['motion']
 
-                # pred_cam (n_frames, 3)      # weak perspective camera parameters in cropped image space (s,tx,ty)
-                # orig_cam (n_frames, 4)      # weak perspective camera parameters in original image space (sx,sy,tx,ty)
+                if frame in person_motion['frame_ids']:
+                    frame_offset_index = np.where(
+                        person_motion['frame_ids'] == frame)[0][0]
 
-                orig_cam = list(person_motion['orig_cam'][frame])
+                    orig_cam = list(
+                        person_motion['orig_cam'][frame_offset_index])
 
-                scale_x = orig_cam[0]
-                scale_y = orig_cam[1]
-                trans_x = orig_cam[2]
-                trans_y = orig_cam[3]
+                    scale_x = orig_cam[0]
+                    scale_y = orig_cam[1]
+                    trans_x = orig_cam[2]
+                    trans_y = orig_cam[3]
 
-                # cam_ob.location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, 0))
-                # cam_ob.keyframe_insert('location', frame=frame)
+                    # cam_ob.location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, 0))
+                    # cam_ob.keyframe_insert('location', frame=frame)
 
-                # Set person location and scale keyframes
-                person['armature'].location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, -2))
-                person['armature'].scale = Vector((scale_x, scale_x, scale_x))
-                person['armature'].pose.bones[get_bone_name(person['gender'], 'root')].keyframe_insert('location', frame=frame)
-                person['armature'].pose.bones[get_bone_name(person['gender'], 'root')].keyframe_insert('scale', frame=frame)
+                    # Set person location and scale keyframes
+                    person['armature'].location = Vector(
+                        (scale_x * trans_x, -1 * scale_y * trans_y, -2))
+                    person['armature'].scale = Vector(
+                        (scale_x, scale_x, scale_x))
+                    person['armature'].keyframe_insert('location', frame=frame)
+                    person['armature'].keyframe_insert('scale', frame=frame)
 
-                # Transform pose into rotation matrices (for pose) and pose blendshapes
-                rotation_matrices, blendshapes = rodrigues2bshapes(person_motion['pose'][frame])
+                    # Transform pose into rotation matrices (for pose) and pose blendshapes
+                    rotation_matrices, blendshapes = rodrigues2bshapes(
+                        person_motion['pose'][frame_offset_index])
 
-                # Set the pose of each bone to the quaternion specified by pose
-                for bone_index, rotation_matrix in enumerate(rotation_matrices):
-                    bone = person['armature'].pose.bones[get_bone_name(person['gender'], smpl_bones[bone_index])]
-                    bone.rotation_quaternion = Matrix(rotation_matrix).to_quaternion()
-                    bone.keyframe_insert('rotation_quaternion', frame=frame)
-                    bone.keyframe_insert('location', frame=frame)
+                    # Set the pose of each bone to the quaternion specified by pose
+                    for bone_index, rotation_matrix in enumerate(rotation_matrices):
+                        bone = person['armature'].pose.bones[get_bone_name(
+                            person['gender'], smpl_bones[bone_index])]
+                        bone.rotation_quaternion = Matrix(
+                            rotation_matrix).to_quaternion()
+                        bone.keyframe_insert(
+                            'rotation_quaternion', frame=frame)
+                        bone.keyframe_insert('location', frame=frame)
 
-                scene.update()
+                    # apply pose blendshapes
+                    # for i, blendshape in enumerate(blendshapes):
+                    #     key = 'Pose%03d' % i
 
-        log('Finished setting keyframes')
+                    #     mesh.data.shape_keys.key_blocks[key].value = blendshape
+                    #     if not frame is None:
+                    #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
+                    #             'value', index=-1, frame=frame)
+
+                    # # apply shape blendshapes
+                    # for i, shape_elem in enumerate(shape):
+                    #     key = 'Shape%03d' % i
+                    #     mesh.data.shape_keys.key_blocks[key].value = shape_elem
+                    #     if not frame is None:
+                    #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
+                    #             'value', index=-1, frame=frame)
+
+                    scene.update()
+
+                else:
+
+                    person['armature'].location = Vector((0, 0, 10))
+                    person['armature'].keyframe_insert('location', frame=frame)
+                    scene.update()
 
         # random light
         sh_coeffs = .7 * (2 * np.random.rand(9) - 1)
@@ -612,15 +638,45 @@ def main():
 
         log('Finished setup')
 
+        area_i = list(map(
+            lambda x: x.type, bpy.data.window_managers[0].windows[0].screen.areas)).index('VIEW_3D')
+        area = bpy.data.window_managers[0].windows[0].screen.areas[area_i]
+
+        space_i = list(map(lambda x: x.type, area.spaces)).index('VIEW_3D')
+        space = area.spaces[space_i]
+
+        space.region_3d.view_matrix = Matrix(((1, 0, 0, 0),
+                                              (0, 1, 0, 0),
+                                              (0, 0, 1, -5),
+                                              (0, 0, 0, 1)))
 
         # iterate over the keyframes and render
-        # for frame in range(nr_frames):
-        #     log("Rendering frame %d" % frame)
+        # for frame in range(min(nr_frames, 200)):
+        #     log("Rendering video %d/%d, frame %d/%d" % (motion_index + 1, len(motions), frame + 1, nr_frames))
 
         #     scene.frame_set(frame)
         #     scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
+
+
+        #     logfile = 'blender_render.log'
+        #     open(logfile, 'a').close()
+        #     old = os.dup(1)
+        #     sys.stdout.flush()
+        #     os.close(1)
+        #     os.open(logfile, os.O_WRONLY)
+
+
         #     bpy.ops.render.render(write_still=True)
 
+
+        #     # disable output redirection
+        #     os.close(1)
+        #     os.dup(old)
+        #     os.close(old)
+
+
+
+        #     # Why is this here?
         #     for person in persons.values():
         #         bone_name = get_bone_name(person['gender'], 'root')
         #         bone = person['armature'].pose.bones[bone_name]
@@ -631,7 +687,9 @@ def main():
         # log("Generating RGB video (%s)" % cmd_ffmpeg)
         # os.system(cmd_ffmpeg)
 
-        # TODO: clear TMP_PATH
+        # log("Saved RGB video")
+        # # TODO: clear TMP_PATH
+        # bpy.ops.wm.read_factory_settings()
 
 
 if __name__ == '__main__':

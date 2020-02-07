@@ -14,12 +14,14 @@ from pickle import load
 from random import choice
 import time
 import uuid
+import logging
 
 import numpy as np
 
 import bpy
 from bpy_extras.object_utils import world_to_camera_view as world2cam
 from mathutils import Euler, Matrix, Quaternion, Vector
+from mathutils.bvhtree import BVHTree
 
 # Config
 
@@ -35,22 +37,33 @@ OUTPUT_PATH = 'output'
 RENDER_WIDTH = 640
 RENDER_HEIGHT = 360
 
+MIN_NR_PERSONS = 1
+MAX_NR_PERSONS = 4
+
+TARGET_SIZE = 1
+
 ################
 #    Utils     #
 ################
 
 start_time = time.time()
 
+class InfoFilter(logging.Filter):
+    def filter(self, rec):
+        print(rec)
+        return True
+
 
 def log(message):
     elapsed_time = time.time() - start_time
-    print("[%.2f s] %s" % (elapsed_time, message))
+    # print("[%.2f s] %s" % (elapsed_time, message))
+    logging.info("[%.2fs] %s" % (elapsed_time, message))
 
 
 def load_motions():
     motions = []
     # List all pickle files in the directory
-    pattern = os.path.join(MOTION_PATH, '*.pkl')
+    pattern = os.path.join(MOTION_PATH, '**/*.pkl')
     file_paths = glob(pattern)
     names = list(map(lambda f: f.split(
         '/')[-1].replace('.pkl', ''), file_paths))
@@ -61,8 +74,9 @@ def load_motions():
             motion = pickle.load(file)
             motions.append(motion)
 
-    return names, motions
-    # return [names[0]], [motions[0]]
+    return dict(zip(names, motions))
+
+    # return names, motions
 
 
 def get_body_model(gender):
@@ -158,7 +172,6 @@ def init_scene(motion, shapes):
             filepath=get_body_model(gender), global_scale=100, axis_forward='Y', axis_up='Z')
 
         new = list(bpy.data.objects)
-
         delta = [x for x in new if not x in old]
 
         # Get armature using the default name
@@ -171,20 +184,11 @@ def init_scene(motion, shapes):
         armature = [obj for obj in list(delta)
                     if obj.type == 'ARMATURE'][-1]
 
-        # armature.name = get_armature_name(key)
-        # mesh.name = get_mesh_name(key)
-        # body_model_name = mesh.name
-        # body_model = mesh
-
         # Autosmooth creates artifacts so turn it off
         mesh.data.use_auto_smooth = False
         # Clear existing animation data
         mesh.data.shape_keys.animation_data_clear()
         armature.animation_data_clear()
-
-        # for vertex in mesh.data.vertices:
-        #     print(vertex)
-        #     print(vertex.co)
 
         n_sh_bshapes = len([k for k in mesh.data.shape_keys.key_blocks.keys()
                             if k.startswith('Shape')])
@@ -210,14 +214,14 @@ def init_scene(motion, shapes):
         bpy.context.scene.objects.active = mesh
 
         pelvis = armature.pose.bones[get_bone_name(gender, 'Pelvis')]
+
+        # TODO: give random position somewhere here!!!
+
         orig_pelvis_loc = (armature.matrix_world.copy() *
                            pelvis.head.copy()) - Vector((-1., 1., 1.))
 
         scene.objects.active = armature
         orig_trans = np.asarray(pelvis.location).copy()
-
-        # armature.animation_data_clear()
-        # mesh.rotation_euler = Euler([math.radians(180), 0, 0], 'XYZ')
 
         persons[key]['gender'] = gender
         persons[key]['shape'] = shape
@@ -230,58 +234,28 @@ def init_scene(motion, shapes):
 
     # Set camera properties and initial position
     bpy.ops.object.select_all(action='DESELECT')
+
     cam_ob = bpy.data.objects['Camera']
+    # TODO: scn vs scene?
     scn = bpy.context.scene
     scn.objects.active = cam_ob
 
-    bpy.data.objects['Camera'].data.type = 'ORTHO'
-    bpy.data.objects['Camera'].data.ortho_scale = 3
+    # bpy.data.objects['Camera'].data.type = 'ORTHO'
+    # bpy.data.objects['Camera'].data.ortho_scale = 3
 
-    cam = motion[list(motion.keys())[0]]['orig_cam']
-    # log('Cam: ')
-    # print(cam[0])
-    sx, sy, tx, ty = cam[0]
-
-    # camera = WeakPerspectiveCamera(
-    #     scale=[sx, sy],
-    #     translation=[tx, ty],
-    #     zfar=1000.
-    # )
-
-    scale = [sx, sy]
-    translation = [tx, ty]
-
-    projection_matrix = np.array([[scale[0], 0., 0., translation[0] * scale[0]],
-                                  [0., scale[1], 0., -translation[1] * scale[1]],
-                                  [0., 0., -1., 0.],
-                                  [0., 0., 0., 1.]])
-
-    # Matrix([[0.38288637,0,0,0.38288637 * 0.90845471],[0,0.68068687,0,-0.51094959 * 0.68068687],[0,0,-1,0],[0,0,0,1]])
-
-    # cam_ob
-
-    # camera_pose = np.eye(4)
-    # cam_node = self.scene.add(camera, pose=camera_pose)
-
-    # TODO: make camera somewhat random
-    # You can get camera matrix from Blender Python console (bpy.data.objects['Camera'].matrix_world)
-    # matrix_world = Matrix(((-1.,  0.,  0.,  1.25),
-    #                        (0., -0.2,  1.,  10),
-    #                        (0., -1., -0.2, -2.5),
-    #                        (0.,  0.,  0.,  1.)))
-
-    matrix_world = np.eye(4)
-
-    # cam_ob.matrix_world = cam_ob.matrix_world * mathutils.Matrix.Translation((0.0, 1.0, 0.0))
-    cam_ob.matrix_world = matrix_world
-
+    cam_ob.animation_data_clear()
     cam_ob.data.angle = math.radians(30)
-    cam_ob.data.lens = 50
+    cam_ob.data.lens = 40
     cam_ob.data.clip_start = 0.1
     cam_ob.data.sensor_width = 32
-    cam_ob.animation_data_clear()
+    cam_ob.matrix_world = np.eye(4)
 
-    orig_cam_loc = cam_ob.location.copy()
+    cam_ob.matrix_world = Matrix(((1.0, 0.0, 0.0, 0.0),
+                                  (0.0, 0.9914448261260986,
+                                   0.13052618503570557, 0.75),
+                                  (0.0, -0.13052618503570557,
+                                   0.9914448261260986, 0.0),
+                                  (0.0, 0.0, 0.0, 1.0)))
 
     # Allows the background image to come through
     scn.cycles.film_transparent = True
@@ -297,10 +271,17 @@ def init_scene(motion, shapes):
     scn.render.resolution_percentage = 100
     scn.render.image_settings.file_format = 'PNG'
 
+    # frame = cam_ob.data.view_frame(scene)
+
+    # # move from object-space into world-space
+    # frame = [cam_ob.matrix_world * v for v in frame]
+
+    # print(frame)
+
     # Create the Composite Nodes graph, combining foreground (human bodies) with background image
     create_composite_nodes(background_img)
 
-    return scene, persons, cam_ob, orig_cam_loc
+    return scene, persons, cam_ob
 
 
 def deselect_all():
@@ -466,6 +447,16 @@ def apply_trans_pose_shape(trans, scale, pose, person, frame=None):
     #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
     #             'value', index=-1, frame=frame)
 
+def max_x_from_z(z):
+    return z / 2.85
+
+def is_roughly_in_view(x, y, z):
+    if not y is 1:
+        return False
+    if abs(x) <= abs(max_x_from_z(z)):
+        return False
+    return True
+
 
 # reset the joint positions of the character according to its new shape
 def reset_joint_positions(scene, cam_ob, reg_ivs, joint_reg, person):
@@ -478,7 +469,24 @@ def reset_joint_positions(scene, cam_ob, reg_ivs, joint_reg, person):
 
     # Rotate up and one up (TODO: why are estimated poses upside down???)
     armature.rotation_euler = Euler((np.pi, 0, 0))
-    armature.location = Vector((0., 0., -2.))
+
+    # z = min(-3.5, -1 * np.random.lognormal(np.log(9), np.log(2.5)))
+
+    z = -4.5 - abs(np.random.normal(0, 5))
+
+    max_x = max_x_from_z(z)
+    x = np.random.rand() * abs(max_x) * 2 - abs(max_x)
+
+    print('Z is: ' + str(z))
+    print('Max X is: ' + str(max_x))
+    print('X is: ' + str(x))
+
+    # Fixed groundplane
+    y = 0.75
+
+    armature.location = Vector((x, y, z))
+    # TODO: check if does not bots met iemand anders
+
 
     # since the regression is sparse, only the relevant vertex
     #     elements (joint_reg) and their indices (reg_ivs) are loaded
@@ -516,14 +524,38 @@ def reset_joint_positions(scene, cam_ob, reg_ivs, joint_reg, person):
 ################
 
 def main():
+    log_format = '[synth_motion] [ln%(lineno)d] %(message)s'
+    logging.basicConfig(level='INFO', format=log_format)
+
+    # sys.stdout = open(os.devnull, 'w')
+
     seed = str(start_time)
     random.seed(seed)
     log('Seed is %s' % seed)
 
     # Load the extracted motions from disk
     log('Loading motion files')
-    motion_names, motions = load_motions()
-    log('Loaded %s motion files' % len(motions))
+    raw_motions = load_motions()
+    log('Loaded %s raw motion files' % len(raw_motions))
+
+    samples = {}
+
+    log('Target size is %s' % TARGET_SIZE)
+
+    # Combine motions until we have reached the target size of the synthetic dataset
+    for sample in range(0, TARGET_SIZE):
+        # Determine the number of persons in this sample
+        nr_persons = random.choice(range(MIN_NR_PERSONS, MAX_NR_PERSONS + 1))
+
+        # Determine the motion files to use for this sample
+        motion_names = random.sample(raw_motions.keys(), nr_persons)
+        # Extract the corresponding motion data
+        motion_data = {n: raw_motions[n] for n in motion_names}
+
+        # Unique identier for this sample contains motion_names for debugging purposes
+        sample_identifier = str(sample) + '_' + '_'.join(motion_names)
+        # Save data to samples dict
+        samples[sample_identifier] = motion_data
 
     log('Loading CAESAR shape data')
     with open(SHAPE_PATH, 'rb') as file:
@@ -531,100 +563,133 @@ def main():
     joint_regressor = shapes['joint_regressor']
     regression_verts = shapes['regression_verts']
 
-    # Loop through all motions
-    for motion_index, (motion_name, motion) in enumerate(zip(motion_names, motions)):
-        log('Processing motion %s' % motion_index)
+    # Loop over all samples and create videos
+    for sample_index, (sample_id, motion) in enumerate(samples.items()):
+        log('Processing sample %s' % sample_index)
 
         # Create a filename for the final render and use it to
-        render_filename = '%s.mp4' % (motion_name + '_' + seed)
+        render_filename = '%s.mp4' % (sample_id + '_' + seed)
         render_temp_path = join(TMP_PATH, render_filename)
         log('Filename will be %s' % render_filename)
 
         # Initialise Blender
-        scene, persons, cam_ob, orig_cam_loc = init_scene(motion, shapes)
+        scene, persons, cam_ob = init_scene(motion, shapes)
 
-        nr_frames = max([max(motion[person]['frame_ids'])
+        # The number of frames is limited by the minimum number of frames in the individual motions
+        nr_frames = min([len(motion[person]['frame_ids'])
                          for person in motion.keys()])
+
+
+        for person in persons.values():
+            print(person)
+
+            # Random walks
+        
+
+            x = np.zeros(nr_frames)
+            z = np.zeros(nr_frames)
+
+            # Start position
+            z[0] = -4.5 - abs(np.random.normal(0, 5))
+            x[0] = np.random.rand() * abs(max_x_from_z(z[0])) * 2 - abs(max_x_from_z(z[0]))
+
+            
+            # filling the coordinates with random variables 
+            speed_x = np.random.normal(0, 0.01)
+            speed_z = np.random.normal(0, 0.01)
+
+            # direction = random.randrange(0, 359, 1)
+
+            for i in range(1, nr_frames):
+
+                delta_z = np.random.normal(speed_z, 0.01)
+                delta_x = np.random.normal(speed_x, 0.01)
+
+                new_z = min(z[i - 1] + delta_z, z[0])
+                new_x = x[i - 1] + delta_x
+
+                max_x = abs(max_x_from_z(new_z))
+                if new_x > 0 and new_x > max_x:
+                    new_x = max_x
+                if new_x < 0 and new_x < -1 * max_x:
+                    new_x = -1 * max_x
+
+                speed_x = np.random.normal(speed_x, 0.001)
+                speed_z = np.random.normal(speed_z, 0.001)
+
+                z[i] = new_z
+                x[i] = new_x
+
+                # val = random.randint(1, 4)
+            person['random_walk'] = { 'x': x, 'z': z }
+
+
 
         # TODO: figure out why this is needed
         for person in persons.values():
             curr_shape = reset_joint_positions(scene,
                                                cam_ob, regression_verts, joint_regressor, person)
 
-
-        # LOOP TO CREATE 3D ANIMATION
+        # Set motion and position keyframes to create the animation
         for frame in range(nr_frames):
+
             # Set a new keyframe
             scene.frame_set(frame)
 
             # Loop over the persons in the scene
             for key, person in persons.items():
-                
-                person_motion = person['motion']
 
-                if frame in person_motion['frame_ids']:
-                    frame_offset_index = np.where(
-                        person_motion['frame_ids'] == frame)[0][0]
+                # orig_cam = list(
+                #     person['motion']['orig_cam'][frame_offset_index])
 
-                    orig_cam = list(
-                        person_motion['orig_cam'][frame_offset_index])
+                # scale_x = orig_cam[0]
+                # scale_y = orig_cam[1]
+                # trans_x = orig_cam[2]
+                # trans_y = orig_cam[3]
+            
+                # Set person location and scale keyframes
+                person['armature'].location = Vector((person['random_walk']['x'][frame], 0.75, person['random_walk']['z'][frame]))
+                # person['armature'].scale = Vector(
+                #     (scale_x, scale_x, scale_x))
+                person['armature'].keyframe_insert('location', frame=frame)
+                # person['armature'].keyframe_insert('scale', frame=frame)
 
-                    scale_x = orig_cam[0]
-                    scale_y = orig_cam[1]
-                    trans_x = orig_cam[2]
-                    trans_y = orig_cam[3]
+                # TODO: apply random walk here
 
-                    # cam_ob.location = Vector((scale_x * trans_x, -1 * scale_y * trans_y, 0))
-                    # cam_ob.keyframe_insert('location', frame=frame)
+                # Transform pose into rotation matrices (for pose) and pose blendshapes
+                rotation_matrices, blendshapes = rodrigues2bshapes(
+                    person['motion']['pose'][frame])
 
-                    # Set person location and scale keyframes
-                    person['armature'].location = Vector(
-                        (scale_x * trans_x, -1 * scale_y * trans_y, -2))
-                    person['armature'].scale = Vector(
-                        (scale_x, scale_x, scale_x))
-                    person['armature'].keyframe_insert('location', frame=frame)
-                    person['armature'].keyframe_insert('scale', frame=frame)
+                # Set the pose of each bone to the quaternion specified by pose
+                for bone_index, rotation_matrix in enumerate(rotation_matrices):
+                    bone = person['armature'].pose.bones[get_bone_name(
+                        person['gender'], smpl_bones[bone_index])]
+                    bone.rotation_quaternion = Matrix(
+                        rotation_matrix).to_quaternion()
+                    bone.keyframe_insert(
+                        'rotation_quaternion', frame=frame)
+                    # bone.keyframe_insert('location', frame=frame)
 
-                    # Transform pose into rotation matrices (for pose) and pose blendshapes
-                    rotation_matrices, blendshapes = rodrigues2bshapes(
-                        person_motion['pose'][frame_offset_index])
+                # apply pose blendshapes
+                # for i, blendshape in enumerate(blendshapes):
+                #     key = 'Pose%03d' % i
 
-                    # Set the pose of each bone to the quaternion specified by pose
-                    for bone_index, rotation_matrix in enumerate(rotation_matrices):
-                        bone = person['armature'].pose.bones[get_bone_name(
-                            person['gender'], smpl_bones[bone_index])]
-                        bone.rotation_quaternion = Matrix(
-                            rotation_matrix).to_quaternion()
-                        bone.keyframe_insert(
-                            'rotation_quaternion', frame=frame)
-                        bone.keyframe_insert('location', frame=frame)
+                #     mesh.data.shape_keys.key_blocks[key].value = blendshape
+                #     if not frame is None:
+                #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
+                #             'value', index=-1, frame=frame)
 
-                    # apply pose blendshapes
-                    # for i, blendshape in enumerate(blendshapes):
-                    #     key = 'Pose%03d' % i
+                # # apply shape blendshapes
+                # for i, shape_elem in enumerate(shape):
+                #     key = 'Shape%03d' % i
+                #     mesh.data.shape_keys.key_blocks[key].value = shape_elem
+                #     if not frame is None:
+                #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
+                #             'value', index=-1, frame=frame)
 
-                    #     mesh.data.shape_keys.key_blocks[key].value = blendshape
-                    #     if not frame is None:
-                    #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
-                    #             'value', index=-1, frame=frame)
+                scene.update()
 
-                    # # apply shape blendshapes
-                    # for i, shape_elem in enumerate(shape):
-                    #     key = 'Shape%03d' % i
-                    #     mesh.data.shape_keys.key_blocks[key].value = shape_elem
-                    #     if not frame is None:
-                    #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
-                    #             'value', index=-1, frame=frame)
-
-                    scene.update()
-
-                else:
-
-                    person['armature'].location = Vector((0, 0, 10))
-                    person['armature'].keyframe_insert('location', frame=frame)
-                    scene.update()
-
-        # random light
+        # Random light
         sh_coeffs = .7 * (2 * np.random.rand(9) - 1)
         # Ambient light (first coeff) needs a minimum  is ambient. Rest is uniformly distributed, higher means brighter.
         sh_coeffs[0] = .5 + .9 * np.random.rand()
@@ -652,29 +717,13 @@ def main():
 
         # iterate over the keyframes and render
         # for frame in range(min(nr_frames, 200)):
-        #     log("Rendering video %d/%d, frame %d/%d" % (motion_index + 1, len(motions), frame + 1, nr_frames))
+        #     log("Rendering video %d/%d, frame %d/%d" %
+        #         (sample_index + 1, len(samples), frame + 1, nr_frames))
 
         #     scene.frame_set(frame)
         #     scene.render.filepath = join(render_temp_path, '%04d.png' % frame)
 
-
-        #     logfile = 'blender_render.log'
-        #     open(logfile, 'a').close()
-        #     old = os.dup(1)
-        #     sys.stdout.flush()
-        #     os.close(1)
-        #     os.open(logfile, os.O_WRONLY)
-
-
         #     bpy.ops.render.render(write_still=True)
-
-
-        #     # disable output redirection
-        #     os.close(1)
-        #     os.dup(old)
-        #     os.close(old)
-
-
 
         #     # Why is this here?
         #     for person in persons.values():

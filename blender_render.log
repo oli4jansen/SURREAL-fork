@@ -1,7 +1,21 @@
-Fra:97 Mem:167.20M (0.00M, Peak 167.21M) | Time:00:00.03 | Mem:0.00M, Peak:0.00M | Scene, RenderLayer | Synchronizing object | Armature.006
-Fra:97 Mem:167.20M (0.00M, Peak 167.21M) | Time:00:00.03 | Mem:0.00M, Peak:0.00M | Scene, RenderLayer | Synchronizing object | f_avg.004
-Fra:97 Mem:168.40M (0.00M, Peak 169.48M) | Time:00:00.04 | Mem:0.00M, Peak:0.00M | Scene, RenderLayer | Synchronizing object | Armature.005
-Fra:97 Mem:168.40M (0.00M, Peak 169.48M) | Time:00:00.04 | Mem:0.00M, Peak:0.00M | Scene, RenderLayer | Synchronizing object | f_avg.003
+Saved: 'tmp/0_dance_1_gta_0_1580919385.83735.mp4/0002.png'
+ Time: 00:06.60 (Saving: 00:00.09)
+
+
+
+total memory len: 49.526 MB
+peak memory len: 49.685 MB
+
+For more detailed per-block statistics run Blender with memory debugging command line argument.
+
+total memory len: 49.528 MB
+peak memory len: 51.588 MB
+
+For more detailed per-block statistics run Blender with memory debugging command line argument.
+Saved: 'tmp/0_dance_1_gta_0_1580919385.83735.mp4/0000.png'
+ Time: 00:06.81 (Saving: 00:00.10)
+
+ | Scene, RenderLayer | Synchronizing object | f_avg.003
 Fra:97 Mem:169.59M (0.00M, Peak 170.68M) | Time:00:00.05 | Mem:0.00M, Peak:0.00M | Scene, RenderLayer | Synchronizing object | Armature.004
 Fra:97 Mem:169.59M (0.00M, Peak 170.68M) | Time:00:00.05 | Mem:0.00M, Peak:0.00M | Scene, RenderLayer | Synchronizing object | m_avg.001
 Fra:97 Mem:170.79M (0.00M, Peak 171.88M) | Time:00:00.06 | Mem:0.00M, Peak:0.00M | Scene, RenderLayer | Synchronizing object | Armature.003

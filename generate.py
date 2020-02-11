@@ -19,6 +19,7 @@ import logging
 import numpy as np
 
 import bpy
+import bmesh
 from bpy_extras.object_utils import world_to_camera_view as world2cam
 from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
@@ -34,12 +35,18 @@ SHAPE_PATH = 'data/shape/shape_data.pkl'
 SHADER_PATH = 'data/shader/shader.osl'
 OUTPUT_PATH = 'output'
 
+# Scene constraints
+MIN_NR_PERSONS = 3
+MAX_NR_PERSONS = 5
+MAX_Z = -5.5
+MIN_Z = -50
+
+# Render settings
 RENDER_WIDTH = 640
 RENDER_HEIGHT = 360
+FRAMES_PER_SECOND = 25
 
-MIN_NR_PERSONS = 1
-MAX_NR_PERSONS = 4
-
+# Target size of the output dataset
 TARGET_SIZE = 1
 
 ################
@@ -47,6 +54,7 @@ TARGET_SIZE = 1
 ################
 
 start_time = time.time()
+
 
 class InfoFilter(logging.Filter):
     def filter(self, rec):
@@ -135,6 +143,7 @@ def init_scene(motion, shapes):
     scene = get_main_scene()
     # Set render system settings
     scene.render.engine = 'CYCLES'
+    scene.render.fps = FRAMES_PER_SECOND
     scene.render.use_antialiasing = True
     scene.cycles.shading_system = True
     scene.use_nodes = True
@@ -148,6 +157,9 @@ def init_scene(motion, shapes):
     # Get a random background image and load into Blender
     background_paths = glob(os.path.join(BG_PATH, '*'))
     background_img = bpy.data.images.load(random.choice(background_paths))
+
+    nr_frames = min([len(motion[person]['frame_ids'])
+                     for person in motion.keys()])
 
     persons = {}
 
@@ -231,6 +243,12 @@ def init_scene(motion, shapes):
         persons[key]['orig_trans'] = orig_trans
         persons[key]['armature'] = armature
         persons[key]['mesh'] = mesh
+        persons[key]['movement'] = {
+            'x': np.zeros(nr_frames),
+            'z': np.zeros(nr_frames),
+            'speed_x': np.random.normal(0, 0.01),
+            'speed_z': np.random.normal(0, 0.01)
+        }
 
     # Set camera properties and initial position
     bpy.ops.object.select_all(action='DESELECT')
@@ -281,7 +299,7 @@ def init_scene(motion, shapes):
     # Create the Composite Nodes graph, combining foreground (human bodies) with background image
     create_composite_nodes(background_img)
 
-    return scene, persons, cam_ob
+    return scene, persons, cam_ob, nr_frames
 
 
 def deselect_all():
@@ -447,8 +465,10 @@ def apply_trans_pose_shape(trans, scale, pose, person, frame=None):
     #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
     #             'value', index=-1, frame=frame)
 
+
 def max_x_from_z(z):
     return z / 2.85
+
 
 def is_roughly_in_view(x, y, z):
     if not y is 1:
@@ -469,24 +489,6 @@ def reset_joint_positions(scene, cam_ob, reg_ivs, joint_reg, person):
 
     # Rotate up and one up (TODO: why are estimated poses upside down???)
     armature.rotation_euler = Euler((np.pi, 0, 0))
-
-    # z = min(-3.5, -1 * np.random.lognormal(np.log(9), np.log(2.5)))
-
-    z = -4.5 - abs(np.random.normal(0, 5))
-
-    max_x = max_x_from_z(z)
-    x = np.random.rand() * abs(max_x) * 2 - abs(max_x)
-
-    print('Z is: ' + str(z))
-    print('Max X is: ' + str(max_x))
-    print('X is: ' + str(x))
-
-    # Fixed groundplane
-    y = 0.75
-
-    armature.location = Vector((x, y, z))
-    # TODO: check if does not bots met iemand anders
-
 
     # since the regression is sparse, only the relevant vertex
     #     elements (joint_reg) and their indices (reg_ivs) are loaded
@@ -517,6 +519,94 @@ def reset_joint_positions(scene, cam_ob, reg_ivs, joint_reg, person):
         bb.tail = bb.head + bboffset
     bpy.ops.object.mode_set(mode='OBJECT')
     return shape
+
+def distance(first, second):
+	locx = second[0] - first[0]
+	locy = second[1] - first[1]
+	locz = second[2] - first[2]
+
+	return math.sqrt((locx)**2 + (locy)**2 + (locz)**2) 
+
+def overlap(scene, obj_name):
+
+    subject_bm = bmesh.new()
+    subject_bm.from_mesh(scene.objects[obj_name].data)
+    subject_bm.transform(scene.objects[obj_name].matrix_world)
+    subject_tree = BVHTree.FromBMesh(subject_bm)
+    subject_center = scene.objects[obj_name].parent.location
+
+    # check every object for intersection with every other object
+    for obj in scene.objects.keys():
+        if obj == obj_name or scene.objects[obj].type != 'MESH':
+            continue
+
+        if distance(subject_center, scene.objects[obj].parent.location) < 0.25:
+            return True
+
+        object_bm = bmesh.new()
+
+        object_bm.from_mesh(scene.objects[obj].data)
+        object_bm.transform(scene.objects[obj].matrix_world)
+        object_tree = BVHTree.FromBMesh(object_bm)
+
+        intersection = object_tree.overlap(subject_tree)
+
+        # if list is empty, no objects are touching
+        if intersection != []:
+            log(obj + " and " + obj_name + " are touching!")
+            return True
+
+    return False
+
+
+def random_walk(scene, person, frame, tries):
+    if frame == 0:
+        z_0 = max(MAX_Z - abs(np.random.normal(0, 5)), MIN_Z)
+        person['movement']['z'][0] = z_0
+        person['movement']['x'][0] = np.random.rand() * abs(max_x_from_z(z_0)) * 2 - abs(max_x_from_z(z_0))
+        # person['movement']['x'][0] = 0
+        # filling the coordinates with random variables
+    else:
+        if tries > 5:
+            # When a person bumps into someone else, the speed is reduced and direction is reversed
+            person['movement']['speed_z'] = -0.5 * person['movement']['speed_z']
+            person['movement']['speed_x'] = -0.5 * person['movement']['speed_x']
+
+        if tries > 100:
+            log('Nr tries = %s' % str(tries))
+
+        delta_z = np.random.normal(person['movement']['speed_z'], 0.01 * (tries % 10 + 1))
+        delta_x = np.random.normal(person['movement']['speed_x'], 0.01 * (tries % 10 + 1))
+
+        new_z = person['movement']['z'][frame - 1] + delta_z
+        new_x = person['movement']['x'][frame - 1] + delta_x
+
+        # Prevent people from walking off screen
+        max_x = abs(max_x_from_z(new_z))
+        if new_x > 0 and new_x > max_x:
+            person['movement']['speed_x'] /= 2
+            new_x = max_x
+        if new_x < 0 and new_x < -1 * max_x:
+            person['movement']['speed_x'] /= 2
+            new_x = -1 * max_x
+
+        # Prevent people from disappearing into the distance
+        if new_z > MAX_Z:
+            person['movement']['speed_z'] = 0
+            new_z = MAX_Z
+        if new_z < MIN_Z:
+            new_z = MIN_Z
+            person['movement']['speed_z'] = 0
+
+        # TODO: misschien analyseren of een persoon in de buurt komt van een ander persoon en dan snelheid laten afnemen?
+
+        person['movement']['speed_x'] = np.random.normal(person['movement']['speed_x'], 0.001)
+        person['movement']['speed_z'] = np.random.normal(person['movement']['speed_z'], 0.001)
+
+        person['movement']['z'][frame] = new_z
+        person['movement']['x'][frame] = new_x
+
+    return Vector((person['movement']['x'][frame], 0.75, person['movement']['z'][frame]))
 
 
 ################
@@ -573,57 +663,7 @@ def main():
         log('Filename will be %s' % render_filename)
 
         # Initialise Blender
-        scene, persons, cam_ob = init_scene(motion, shapes)
-
-        # The number of frames is limited by the minimum number of frames in the individual motions
-        nr_frames = min([len(motion[person]['frame_ids'])
-                         for person in motion.keys()])
-
-
-        for person in persons.values():
-            print(person)
-
-            # Random walks
-        
-
-            x = np.zeros(nr_frames)
-            z = np.zeros(nr_frames)
-
-            # Start position
-            z[0] = -4.5 - abs(np.random.normal(0, 5))
-            x[0] = np.random.rand() * abs(max_x_from_z(z[0])) * 2 - abs(max_x_from_z(z[0]))
-
-            
-            # filling the coordinates with random variables 
-            speed_x = np.random.normal(0, 0.01)
-            speed_z = np.random.normal(0, 0.01)
-
-            # direction = random.randrange(0, 359, 1)
-
-            for i in range(1, nr_frames):
-
-                delta_z = np.random.normal(speed_z, 0.01)
-                delta_x = np.random.normal(speed_x, 0.01)
-
-                new_z = min(z[i - 1] + delta_z, z[0])
-                new_x = x[i - 1] + delta_x
-
-                max_x = abs(max_x_from_z(new_z))
-                if new_x > 0 and new_x > max_x:
-                    new_x = max_x
-                if new_x < 0 and new_x < -1 * max_x:
-                    new_x = -1 * max_x
-
-                speed_x = np.random.normal(speed_x, 0.001)
-                speed_z = np.random.normal(speed_z, 0.001)
-
-                z[i] = new_z
-                x[i] = new_x
-
-                # val = random.randint(1, 4)
-            person['random_walk'] = { 'x': x, 'z': z }
-
-
+        scene, persons, cam_ob, nr_frames = init_scene(motion, shapes)
 
         # TODO: figure out why this is needed
         for person in persons.values():
@@ -638,23 +678,6 @@ def main():
 
             # Loop over the persons in the scene
             for key, person in persons.items():
-
-                # orig_cam = list(
-                #     person['motion']['orig_cam'][frame_offset_index])
-
-                # scale_x = orig_cam[0]
-                # scale_y = orig_cam[1]
-                # trans_x = orig_cam[2]
-                # trans_y = orig_cam[3]
-            
-                # Set person location and scale keyframes
-                person['armature'].location = Vector((person['random_walk']['x'][frame], 0.75, person['random_walk']['z'][frame]))
-                # person['armature'].scale = Vector(
-                #     (scale_x, scale_x, scale_x))
-                person['armature'].keyframe_insert('location', frame=frame)
-                # person['armature'].keyframe_insert('scale', frame=frame)
-
-                # TODO: apply random walk here
 
                 # Transform pose into rotation matrices (for pose) and pose blendshapes
                 rotation_matrices, blendshapes = rodrigues2bshapes(
@@ -687,7 +710,37 @@ def main():
                 #         mesh.data.shape_keys.key_blocks[key].keyframe_insert(
                 #             'value', index=-1, frame=frame)
 
-                scene.update()
+
+                # mesh = [c for c in person['armature'].children if c.type == 'MESH'][0]
+
+                # person['random_walk'] = { 'x': x, 'z': z }
+
+                # orig_cam = list(
+                #     person['motion']['orig_cam'][frame_offset_index])
+
+                # scale_x = orig_cam[0]
+                # scale_y = orig_cam[1]
+                # trans_x = orig_cam[2]
+                # trans_y = orig_cam[3]
+
+                walk = True
+                walk_i = 0
+                while walk:
+                    walk_i += 1
+                    if walk_i > 1:
+                        log('Frame %s - Walk blocked for %s' % (str(frame), person['mesh'].name))
+
+                    # get a new location from the random walk algorithm
+                    new_location = random_walk(scene, person, frame, walk_i)
+                    # Set person location keyframe
+                    person['armature'].location = new_location
+                    # Update scene
+                    scene.update()
+                    # Calculate overlap and use it to determine if walk should be extended
+                    # Overlap can only be calculated when scene is updated, not within random walk algorithm
+                    walk = overlap(scene, person['mesh'].name)
+                person['armature'].keyframe_insert('location', frame=frame)
+
 
         # Random light
         sh_coeffs = .7 * (2 * np.random.rand(9) - 1)
@@ -731,8 +784,8 @@ def main():
         #         bone = person['armature'].pose.bones[bone_name]
         #         bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
 
-        # cmd_ffmpeg = 'ffmpeg -y -r 30 -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
-        #     join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
+        # cmd_ffmpeg = 'ffmpeg -y -r %s -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
+        #     FRAMES_PER_SECOND, join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
         # log("Generating RGB video (%s)" % cmd_ffmpeg)
         # os.system(cmd_ffmpeg)
 

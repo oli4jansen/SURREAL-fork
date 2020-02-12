@@ -6,6 +6,7 @@ import random
 import subprocess
 import sys
 import time
+import shutil
 from datetime import datetime
 from glob import glob
 from os import getenv, remove, getcwd
@@ -124,8 +125,6 @@ def init_scene(motion, shapes):
         # Add the motion to the person object
         persons[key] = {}
         persons[key]['motion'] = motion[key]
-
-        log('Going to init person %s' % key)
 
         # Load the images picked at domain randomisation into Blender
         gender = random.choice(['female', 'male'])
@@ -482,13 +481,17 @@ def main():
         with open(file_path, 'rb') as file:
             motion = pickle.load(file)
             motions.append(motion)
+
     raw_motions = dict(zip(names, motions))
+    assert(len(raw_motions) > 0)
 
     samples = {}
     # Combine motions until we have reached the target size of the synthetic dataset
     for sample in range(0, TARGET_SIZE):
+        # The number of persons in the sample is capped by the nummer of raw motions and MAX_NR_PERSONS flag
+        nr_persons_range = range(MIN_NR_PERSONS, min(len(raw_motions), MAX_NR_PERSONS) + 1)
         # Determine the number of persons in this sample
-        nr_persons = random.choice(range(MIN_NR_PERSONS, MAX_NR_PERSONS + 1))
+        nr_persons = random.choice(nr_persons_range)
         # Determine the motion files to use for this sample
         motion_names = random.sample(raw_motions.keys(), nr_persons)
         # Extract the corresponding motion data
@@ -508,7 +511,7 @@ def main():
             (sample_index + 1, len(samples), len(motion)))
 
         # Create a filename for the final render and use it to
-        render_filename = '%s.mp4' % (sample_id + '_' + seed)
+        render_filename = '%s.mp4' % (sample_id + '_' + str(start_time))
         render_temp_path = join(TMP_PATH, render_filename)
         log('[sample %d/%d] Filename will be %s' %
             (sample_index + 1, len(samples), render_filename))
@@ -613,14 +616,22 @@ def main():
                 bone = person['armature'].pose.bones[bone_name]
                 bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
 
+        # Combine the frames into a video using ffmpeg
         cmd_ffmpeg = 'ffmpeg -y -r %s -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
             FRAMES_PER_SECOND, join(render_temp_path, '%04d.png'), join(OUTPUT_PATH, render_filename))
-        log("Generating RGB video (%s)" % cmd_ffmpeg)
+
         os.system(cmd_ffmpeg)
 
-        # log("Saved RGB video")
-        # # TODO: clear TMP_PATH
-        # bpy.ops.wm.read_factory_settings()
+        # Clear temporary folder contents
+        for filename in os.listdir(TMP_PATH):
+            file_path = os.path.join(TMP_PATH, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                log('Failed to clear temporary folder (%s)' % e)
 
 
 if __name__ == '__main__':

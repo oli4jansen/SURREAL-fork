@@ -4,6 +4,7 @@ import os
 import pickle
 import random
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -14,7 +15,6 @@ from os import getcwd, getenv, remove
 from os.path import dirname, exists, join, realpath
 from pickle import load
 from random import choice
-import statistics
 
 import numpy as np
 
@@ -35,7 +35,7 @@ SHADER_PATH = 'data/shader/shader.osl'
 OUTPUT_PATH = 'output'
 
 # Scene constraints
-MIN_NR_PERSONS = 2
+MIN_NR_PERSONS = 1
 MAX_NR_PERSONS = 4
 MAX_Z = -5.5
 MIN_Z = -50
@@ -44,10 +44,10 @@ MIN_Z = -50
 RENDER_WIDTH = 640
 RENDER_HEIGHT = 360
 FRAMES_PER_SECOND = 25
-MAX_FRAMES = 2
+MAX_FRAMES = 200
 
 # Target size of the output dataset
-TARGET_SIZE = 4
+TARGET_SIZE = 10
 
 SMPL_BONE_NAMES = ['Pelvis', 'L_Hip', 'R_Hip', 'Spine1', 'L_Knee', 'R_Knee', 'Spine2', 'L_Ankle', 'R_Ankle', 'Spine3', 'L_Foot', 'R_Foot',
                    'Neck', 'L_Collar', 'R_Collar', 'Head', 'L_Shoulder', 'R_Shoulder', 'L_Elbow', 'R_Elbow', 'L_Wrist', 'R_Wrist', 'L_Hand', 'R_Hand']
@@ -64,8 +64,6 @@ def Rodrigues(rotvec):
     return(cost*np.eye(3) + (1-cost)*r.dot(r.T) + np.sin(theta)*mat)
 
 # transformation between pose and blendshapes
-
-
 def rodrigues2bshapes(pose):
     joint_rotations = np.asarray(pose).reshape(24, 3)
 
@@ -73,122 +71,6 @@ def rodrigues2bshapes(pose):
     bshapes = np.concatenate([(mat_rot - np.eye(3)).ravel()
                               for mat_rot in mat_rots[1:]])
     return (mat_rots, bshapes)
-
-
-def deselect_all():
-    # TODO: check where this can be removed
-    for ob in bpy.data.objects.values():
-        ob.select_set(False)
-    bpy.context.view_layer.objects.active = None
-
-
-def max_x_from_z(z):
-    return z / 2.85
-
-
-def is_roughly_in_view(x, y, z):
-    if not y is 1:
-        return False
-    if abs(x) <= abs(max_x_from_z(z)):
-        return False
-    return True
-
-
-def distance(first, second):
-    locx = second[0] - first[0]
-    locy = second[1] - first[1]
-    locz = second[2] - first[2]
-
-    return math.sqrt((locx)**2 + (locy)**2 + (locz)**2)
-
-
-def overlap(obj_name):
-
-    subject_bm = bmesh.new()
-    subject_bm.from_mesh(bpy.context.scene.objects[obj_name].data)
-    subject_bm.transform(bpy.context.scene.objects[obj_name].matrix_world)
-    subject_tree = BVHTree.FromBMesh(subject_bm)
-    subject_center = bpy.context.scene.objects[obj_name].parent.location
-
-    # check every object for intersection with every other object
-    for obj in bpy.context.scene.objects.keys():
-        if obj == obj_name or bpy.context.scene.objects[obj].type != 'MESH':
-            continue
-
-        if distance(subject_center, bpy.context.scene.objects[obj].parent.location) < 0.35:
-            # logging.info(obj + " and " + obj_name + " are too close...")
-            return True
-
-        object_bm = bmesh.new()
-
-        object_bm.from_mesh(bpy.context.scene.objects[obj].data)
-        object_bm.transform(bpy.context.scene.objects[obj].matrix_world)
-        object_tree = BVHTree.FromBMesh(object_bm)
-
-        intersection = object_tree.overlap(subject_tree)
-
-        # if list is empty, no objects are touching
-        if intersection != []:
-            # logging.info(obj + " and " + obj_name +
-            #              " have overlapping meshes..")
-            return True
-
-    return False
-
-
-def random_walk(motion, frame, tries):
-    if frame == 0:
-        z_0 = max(MAX_Z - abs(np.random.normal(0, 5)), MIN_Z)
-        motion.movement['z'][0] = z_0
-        motion.movement['x'][0] = np.random.rand(
-        ) * abs(max_x_from_z(z_0)) * 2 - abs(max_x_from_z(z_0))
-    else:
-        if tries > 5:
-            # When a person bumps into someone else, the speed is reduced and direction is reversed
-            motion.movement['speed_z'] = - \
-                0.5 * motion.movement['speed_z']
-            motion.movement['speed_x'] = - \
-                0.5 * motion.movement['speed_x']
-
-        if tries > 100:
-            logging.info('Nr tries = %s' % str(tries))
-
-        delta_z = np.random.normal(
-            motion.movement['speed_z'], 0.01 * (tries % 10 + 1))
-        delta_x = np.random.normal(
-            motion.movement['speed_x'], 0.01 * (tries % 10 + 1))
-
-        new_z = motion.movement['z'][frame - 1] + delta_z
-        new_x = motion.movement['x'][frame - 1] + delta_x
-
-        # Prevent people from walking off screen
-        max_x = abs(max_x_from_z(new_z))
-        if new_x > 0 and new_x > max_x:
-            motion.movement['speed_x'] /= 2
-            new_x = max_x
-        if new_x < 0 and new_x < -1 * max_x:
-            motion.movement['speed_x'] /= 2
-            new_x = -1 * max_x
-
-        # Prevent people from disappearing into the distance
-        if new_z > MAX_Z:
-            motion.movement['speed_z'] = 0
-            new_z = MAX_Z
-        if new_z < MIN_Z:
-            new_z = MIN_Z
-            motion.movement['speed_z'] = 0
-
-        # TODO: misschien analyseren of een persoon in de buurt komt van een ander persoon en dan snelheid laten afnemen?
-
-        motion.movement['speed_x'] = np.random.normal(
-            motion.movement['speed_x'], 0.001)
-        motion.movement['speed_z'] = np.random.normal(
-            motion.movement['speed_z'], 0.001)
-
-        motion.movement['z'][frame] = new_z
-        motion.movement['x'][frame] = new_x
-
-    return Vector((motion.movement['x'][frame], 0.5, motion.movement['z'][frame]))
 
 
 class Motion():
@@ -227,40 +109,21 @@ class Motion():
         self.end_frame = end_frame
 
     def load(self):
-        # deselect_all()
-
         self._set_gender()
-
         self._import_body_model()
-
         self._set_texture()
-
-        # pelvis = self.armature.pose.bones[self._get_bone_name('Pelvis')]
-
-        # orig_pelvis_loc = (self.armature.matrix_world.copy() @
-        #                     pelvis.head.copy()) - Vector((-1., 1., 1.))
-
-        # bpy.context.view_layer.objects.active = self.armature
 
     def _set_gender(self):
         self.gender = random.choice(['female', 'male'])
 
     def _set_texture(self):
-        deselect_all()
-        # Create a material with the clothing texture to apply to the human body model
-        # material_name = random.getrandbits(32)
-
         material = bpy.data.materials.new(
             name='Material_%s' % self.identifier)
 
         # Copy the base shader file to temporary directory
         tmp_shader_path = join(
             getcwd(), TMP_PATH, 'shader_%s.osl' % self.identifier)
-        
         os.system('cp %s %s' % (SHADER_PATH, tmp_shader_path))
-
-        assert(os.path.isfile(tmp_shader_path))
-        # logging.info(tmp_shader_path + ' does seem to exist!')
 
         # Clear the default nodes
         material.use_nodes = True
@@ -409,62 +272,15 @@ class Synthesiser():
             m.crop(0, nr_frames - 1)
 
         # Initialise Blender
-        cam_ob = self._init_scene(nr_frames, motion_list)
+        self._init_scene(nr_frames, motion_list)
 
         # Set motion and position keyframes to create the animation
-        for frame in range(nr_frames):
-            # Set the frame pointer
-            bpy.context.scene.frame_set(frame)
+        self._animate(nr_frames, motion_list)
 
-            # Loop over the persons in the scene
-            for key, motion in motion_list.items():
-                deselect_all()
-                # Transform pose into rotation matrices (for pose) and pose blendshapes
-                rotation_matrices, blendshapes = rodrigues2bshapes(
-                    motion.pose[frame])
-
-                # Set the pose of each bone to the quaternion specified by pose
-                for bone_index, rotation_matrix in enumerate(rotation_matrices):
-                    bone = motion.armature.pose.bones[motion._get_bone_name(
-                        SMPL_BONE_NAMES[bone_index])]
-                    bone.rotation_quaternion = Matrix(
-                        rotation_matrix).to_quaternion()
-                    bone.keyframe_insert(
-                        'rotation_quaternion', frame=frame)
-                    # bone.keyframe_insert('location', frame=frame)
-
-                # apply pose blendshapes
-                for i, blendshape in enumerate(blendshapes):
-                    key = 'Pose%03d' % i
-
-                    motion.mesh.data.shape_keys.key_blocks[key].value = blendshape
-                    if not frame is None:
-                        motion.mesh.data.shape_keys.key_blocks[key].keyframe_insert(
-                            'value', index=-1, frame=frame)
-
-                walk = True
-                walk_i = 0
-                while walk:
-                    walk_i += 1
-                    # if walk_i > 1:
-                    #     logging.info('Frame %s - Walk blocked for %s' %
-                    #                  (str(frame), motion.mesh.name))
-
-                    # get a new location from the random walk algorithm
-                    new_location = random_walk(motion, frame, walk_i)
-                    # Set person location keyframe
-                    motion.armature.location = new_location
-                    # Update scene
-                    # scene.update()
-                    # 2.8 migration
-                    bpy.context.view_layer.update()
-
-                    # Calculate overlap and use it to determine if walk should be extended
-                    # Overlap can only be calculated when scene is updated, not within random walk algorithm
-                    walk = overlap(motion.mesh.name)
-                motion.armature.keyframe_insert('location', frame=frame)
-
+        # Render this sample
         self._render(sample_id, nr_frames)
+
+        # Clean Blender for the next sample
         self._clean()
 
     def _reset_blender(self):
@@ -603,6 +419,151 @@ class Synthesiser():
             samples[sample_id] = {
                 n: motion_data[n] for n in motion_names}
         return samples
+
+    def _animate(self, nr_frames, motion_list):
+        for frame in range(nr_frames):
+            # Set the frame pointer
+            bpy.context.scene.frame_set(frame)
+
+            # Loop over the persons in the scene
+            for key, motion in motion_list.items():
+                # Transform pose into rotation matrices (for pose) and pose blendshapes
+                rotation_matrices, blendshapes = rodrigues2bshapes(
+                    motion.pose[frame])
+
+                # Set the pose of each bone to the quaternion specified by pose
+                for bone_index, rotation_matrix in enumerate(rotation_matrices):
+                    bone = motion.armature.pose.bones[motion._get_bone_name(
+                        SMPL_BONE_NAMES[bone_index])]
+                    bone.rotation_quaternion = Matrix(
+                        rotation_matrix).to_quaternion()
+                    bone.keyframe_insert(
+                        'rotation_quaternion', frame=frame)
+
+                # apply pose blendshapes
+                for i, blendshape in enumerate(blendshapes):
+                    key = 'Pose%03d' % i
+
+                    motion.mesh.data.shape_keys.key_blocks[key].value = blendshape
+                    if not frame is None:
+                        motion.mesh.data.shape_keys.key_blocks[key].keyframe_insert(
+                            'value', index=-1, frame=frame)
+
+                walk = True
+                walk_i = 0
+                while walk:
+                    walk_i += 1
+                    # get a new location from the random walk algorithm
+                    new_location = self._random_walk(motion, frame, walk_i)
+                    # Set person location keyframe
+                    motion.armature.location = new_location
+                    # Update scene
+                    bpy.context.view_layer.update()
+                    # Calculate overlap and use it to determine if walk should be extended
+                    # Overlap can only be calculated when scene is updated, not within random walk algorithm
+                    walk = self._overlap(motion.mesh.name)
+                motion.armature.keyframe_insert('location', frame=frame)
+
+    def _max_x_from_z(self, z):
+        return z / 2.85
+
+    def _is_roughly_in_view(self, x, y, z):
+        if abs(x) <= abs(self._max_x_from_z(z)):
+            return False
+        return True
+
+    def _distance(self, first, second):
+        locx = second[0] - first[0]
+        locy = second[1] - first[1]
+        locz = second[2] - first[2]
+
+        return math.sqrt((locx)**2 + (locy)**2 + (locz)**2)
+
+
+    def _overlap(self, obj_name):
+
+        subject_bm = bmesh.new()
+        subject_bm.from_mesh(bpy.context.scene.objects[obj_name].data)
+        subject_bm.transform(bpy.context.scene.objects[obj_name].matrix_world)
+        subject_tree = BVHTree.FromBMesh(subject_bm)
+        subject_center = bpy.context.scene.objects[obj_name].parent.location
+
+        # check every object for intersection with every other object
+        for obj in bpy.context.scene.objects.keys():
+            if obj == obj_name or bpy.context.scene.objects[obj].type != 'MESH':
+                continue
+
+            if self._distance(subject_center, bpy.context.scene.objects[obj].parent.location) < 0.35:
+                return True
+
+            object_bm = bmesh.new()
+
+            object_bm.from_mesh(bpy.context.scene.objects[obj].data)
+            object_bm.transform(bpy.context.scene.objects[obj].matrix_world)
+            object_tree = BVHTree.FromBMesh(object_bm)
+
+            intersection = object_tree.overlap(subject_tree)
+
+            # if list is empty, no objects are touching
+            if intersection != []:
+                return True
+
+        return False
+
+
+    def _random_walk(self, motion, frame, tries):
+        if frame == 0:
+            z_0 = max(MAX_Z - abs(np.random.normal(0, 5)), MIN_Z)
+            motion.movement['z'][0] = z_0
+            motion.movement['x'][0] = np.random.rand(
+            ) * abs(self._max_x_from_z(z_0)) * 2 - abs(self._max_x_from_z(z_0))
+        else:
+            if tries > 5:
+                # When a person bumps into someone else, the speed is reduced and direction is reversed
+                motion.movement['speed_z'] = - \
+                    0.5 * motion.movement['speed_z']
+                motion.movement['speed_x'] = - \
+                    0.5 * motion.movement['speed_x']
+
+            if tries > 100:
+                logging.info('Nr tries = %s' % str(tries))
+
+            delta_z = np.random.normal(
+                motion.movement['speed_z'], 0.01 * (tries % 10 + 1))
+            delta_x = np.random.normal(
+                motion.movement['speed_x'], 0.01 * (tries % 10 + 1))
+
+            new_z = motion.movement['z'][frame - 1] + delta_z
+            new_x = motion.movement['x'][frame - 1] + delta_x
+
+            # Prevent people from walking off screen
+            max_x = abs(self._max_x_from_z(new_z))
+            if new_x > 0 and new_x > max_x:
+                motion.movement['speed_x'] /= 2
+                new_x = max_x
+            if new_x < 0 and new_x < -1 * max_x:
+                motion.movement['speed_x'] /= 2
+                new_x = -1 * max_x
+
+            # Prevent people from disappearing into the distance
+            if new_z > MAX_Z:
+                motion.movement['speed_z'] = 0
+                new_z = MAX_Z
+            if new_z < MIN_Z:
+                new_z = MIN_Z
+                motion.movement['speed_z'] = 0
+
+            # TODO: misschien analyseren of een persoon in de buurt komt van een ander persoon en dan snelheid laten afnemen?
+
+            motion.movement['speed_x'] = np.random.normal(
+                motion.movement['speed_x'], 0.001)
+            motion.movement['speed_z'] = np.random.normal(
+                motion.movement['speed_z'], 0.001)
+
+            motion.movement['z'][frame] = new_z
+            motion.movement['x'][frame] = new_x
+
+        return Vector((motion.movement['x'][frame], 0.5, motion.movement['z'][frame]))
 
     def _render(self, sample_id, nr_frames):
         self._render_images(sample_id, nr_frames)

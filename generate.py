@@ -213,18 +213,12 @@ class Motion():
 
         # Autosmooth creates artifacts so turn it off
         self.mesh.data.use_auto_smooth = False
-        # Clear existing animation data
-        # mesh.data.shape_keys.animation_data_clear()
-        # armature.animation_data_clear()
 
-        n_sh_bshapes = len([k for k in self.mesh.data.shape_keys.key_blocks.keys()
-                            if k.startswith('Shape')])
-
-        assert(n_sh_bshapes == 10)
-
+        # Only use the first 10 (or traditional) SMPL parameters
+        nr_blendshapes = 10
         # Get a body shape from CAESAR
         self.shape = random.choice(
-            self.synthesiser.shapes['%sshapes' % self.gender][:, :n_sh_bshapes])
+            self.synthesiser.shapes['%sshapes' % self.gender][:, :nr_blendshapes])
 
         for i, shape_elem in enumerate(self.shape):
             k = 'Shape%03d' % i
@@ -587,6 +581,7 @@ class Synthesiser():
         os.system(cmd_ffmpeg)
 
     def _clean(self):
+        """"""
         # Clear temporary folder contents
         for filename in os.listdir(TMP_PATH):
             file_path = os.path.join(TMP_PATH, filename)

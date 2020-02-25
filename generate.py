@@ -242,6 +242,7 @@ class Synthesiser():
             self.shapes = pickle.load(file)
 
     def run(self):
+        """Collect motions, generate samples and synthesise videos"""
         # Collect motion data from disk
         self.motion_data = self._collect_motion_data()
         # Generate samples by combining motion data
@@ -252,9 +253,11 @@ class Synthesiser():
             self._synthesise(sample_id, motion_list)
 
     def _get_number_of_frames(self, motion):
+        """Get the minimun number of frames for a dict of motions"""
         return min([m.nr_frames for m in motion.values()])
 
     def _synthesise(self, sample_id, motion_list):
+        """Synthesise a given sample using Blender"""
         self._reset_blender()
 
         # Determine the number of frames for this sample based on the motion data in it
@@ -278,6 +281,7 @@ class Synthesiser():
         self._clean()
 
     def _reset_blender(self):
+        """Reset the Blender scene"""
         # Set render system settings
         bpy.context.scene.render.engine = 'CYCLES'
 
@@ -291,6 +295,7 @@ class Synthesiser():
             
 
     def _init_scene(self, nr_frames, motion_list):
+        """Configure the empty Blender scene with random variables."""
         # Get a random background image and load into Blender
         background_paths = glob(os.path.join(BG_PATH, '*'))
         self.background_img = bpy.data.images.load(
@@ -343,6 +348,7 @@ class Synthesiser():
         return cam_ob
 
     def _create_composite_nodes(self):
+        """Configure the composition nodes in Blender to composite the background."""
         assert(self.background_img != None)
         tree = bpy.context.scene.node_tree
 
@@ -375,6 +381,7 @@ class Synthesiser():
         tree.links.new(mix.outputs[0], composite_out.inputs[0])
 
     def _collect_motion_data(self):
+        """Get all motion data from disk."""
         motions = []
         # List all pickle files in the directory
         pattern = os.path.join(MOTION_PATH, '**/*.pkl')
@@ -394,6 +401,7 @@ class Synthesiser():
         return raw_motions
 
     def _generate_samples(self, motion_data):
+        """Takes all available motion data and takes samples from it to create videos with."""
         samples = {}
         # Combine motions until we have reached the target size of the synthetic dataset
         for sample in range(0, TARGET_SIZE):
@@ -415,6 +423,7 @@ class Synthesiser():
         return samples
 
     def _animate(self, nr_frames, motion_list):
+        """Store animation for the given motions in Blender and the given number of frames."""
         for frame in range(nr_frames):
             # Set the frame pointer
             bpy.context.scene.frame_set(frame)
@@ -459,14 +468,19 @@ class Synthesiser():
                 motion.armature.keyframe_insert('location', frame=frame)
 
     def _max_x_from_z(self, z):
+        """Returns the maximal value of the X coordinate given the Z coordinate
+           such that the point is in view of the camera.
+        """
         return z / 2.85
 
     def _is_roughly_in_view(self, x, y, z):
+        """Returns a boolean indicating whether the given coordinates are in view of the camera."""
         if abs(x) <= abs(self._max_x_from_z(z)):
             return False
         return True
 
     def _distance(self, first, second):
+        """Returns the distance between two points (X, Y and Z coords)."""
         locx = second[0] - first[0]
         locy = second[1] - first[1]
         locz = second[2] - first[2]
@@ -475,7 +489,7 @@ class Synthesiser():
 
 
     def _overlap(self, obj_name):
-
+        """Returns a boolean indicating whether the given object overlaps with any other object."""
         subject_bm = bmesh.new()
         subject_bm.from_mesh(bpy.context.scene.objects[obj_name].data)
         subject_bm.transform(bpy.context.scene.objects[obj_name].matrix_world)
@@ -506,6 +520,7 @@ class Synthesiser():
 
 
     def _random_walk(self, motion, frame, tries):
+        """Generate a path for the given person to walk."""
         if frame == 0:
             z_0 = max(MAX_Z - abs(np.random.normal(0, 5)), MIN_Z)
             motion.movement['z'][0] = z_0
@@ -547,8 +562,6 @@ class Synthesiser():
                 new_z = MIN_Z
                 motion.movement['speed_z'] = 0
 
-            # TODO: misschien analyseren of een persoon in de buurt komt van een ander persoon en dan snelheid laten afnemen?
-
             motion.movement['speed_x'] = np.random.normal(
                 motion.movement['speed_x'], 0.001)
             motion.movement['speed_z'] = np.random.normal(
@@ -560,10 +573,12 @@ class Synthesiser():
         return Vector((motion.movement['x'][frame], 0.5, motion.movement['z'][frame]))
 
     def _render(self, sample_id, nr_frames):
+        """Render the given sample into a video."""
         self._render_images(sample_id, nr_frames)
         self._combine_images_as_video(sample_id)
 
     def _render_images(self, sample_id, nr_frames):
+        """Loop over the frames and render each one to an image."""
         # iterate over the keyframes and render
         for frame in range(min(nr_frames, MAX_FRAMES)):
             bpy.context.scene.frame_set(frame)
@@ -573,6 +588,7 @@ class Synthesiser():
             bpy.ops.render.render(write_still=True)
 
     def _combine_images_as_video(self, sample_id):
+        """Use ffmpeg to create a video from the already rendered image frames."""
         render_filename = str(sample_id) + '.mp4'
         # Combine the frames into a video using ffmpeg
         cmd_ffmpeg = 'ffmpeg -y -r %s -i %s -c:v h264 -pix_fmt yuv420p -crf 23 %s' % (
@@ -581,8 +597,7 @@ class Synthesiser():
         os.system(cmd_ffmpeg)
 
     def _clean(self):
-        """"""
-        # Clear temporary folder contents
+        """Clean the directory holding temporary files."""
         for filename in os.listdir(TMP_PATH):
             file_path = os.path.join(TMP_PATH, filename)
             try:

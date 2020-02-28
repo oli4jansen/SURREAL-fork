@@ -10,6 +10,19 @@ if [ ! -d "./VIBE" ] then
   ./VIBE/install.sh
 fi
 
+if ! [ -x "$(command -v blender)" ]; then
+  echo "Installing Blender (requires root access).."
+  # Download Blender
+  wget -O 'blender.tar.bz2' -nc "https://ftp.halifax.rwth-aachen.de/blender/release/Blender2.81/blender-2.81-linux-glibc217-x86_64.tar.bz2"
+
+  # Unpacking tarball
+  mkdir blender
+  tar -xf 'blender.tar.bz2' -C ./blender --strip-components=1
+
+  sudo apt-get install -y libboost-all-dev libgl1-mesa-dev libglu1-mesa libsm-dev
+fi
+
+
 ###################
 #   EXTRACTION   #
 ###################
@@ -21,7 +34,4 @@ mv ./VIBE/output/* ./data/motion/
 #    RENDERING    #
 ###################
 
-if ! [ -x "$(command -v blender)" ]; then
-  echo "Installing Blender.."
-fi
 blender -t 1 -P ./generate.py -b | grep '^\[synth_motion\]'

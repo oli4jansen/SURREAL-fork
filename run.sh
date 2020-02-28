@@ -4,13 +4,13 @@
 #      SETUP      #
 ###################
 
-if [ ! -d "./VIBE" ] then
+if ! [ -d "./VIBE" ] then
   echo "Installing VIBE..."
   git clone https://github.com/oli4jansen/VIBE
   ./VIBE/install.sh
 fi
 
-if ! [ -x "$(command -v blender)" ]; then
+if ! [ -d "./blender" ] then
   echo "Installing Blender (requires root access).."
   # Download Blender
   wget -O 'blender.tar.bz2' -nc "https://ftp.halifax.rwth-aachen.de/blender/release/Blender2.81/blender-2.81-linux-glibc217-x86_64.tar.bz2"
@@ -34,4 +34,4 @@ mv ./VIBE/output/* ./data/motion/
 #    RENDERING    #
 ###################
 
-blender -t 1 -P ./generate.py -b | grep '^\[synth_motion\]'
+./blender/blender -P ./generate.py -b | grep '^\[synth_motion\]'

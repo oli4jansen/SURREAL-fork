@@ -1,16 +1,16 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ###################
 #      SETUP      #
 ###################
 
-if ! [ -d "./VIBE" ] then
+if [ ! -d "./VIBE" ]; then
   echo "Installing VIBE..."
   git clone https://github.com/oli4jansen/VIBE
-  ./VIBE/install.sh
+  bash./VIBE/install.sh
 fi
 
-if ! [ -d "./blender" ] then
+if [ ! -d "./blender" ]; then
   echo "Installing Blender (requires root access).."
   # Download Blender
   wget -O 'blender.tar.bz2' -nc "https://ftp.halifax.rwth-aachen.de/blender/release/Blender2.81/blender-2.81-linux-glibc217-x86_64.tar.bz2"

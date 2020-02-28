@@ -7,7 +7,7 @@
 if [ ! -d "./VIBE" ]; then
   echo "Installing VIBE..."
   git clone https://github.com/oli4jansen/VIBE
-  bash./VIBE/install.sh
+  ./VIBE/install.sh
 fi
 
 if [ ! -d "./blender" ]; then
